@@ -1,0 +1,156 @@
+buildscript {
+    repositories {
+        maven { url = 'https://repo.spongepowered.org/maven' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.spongepowered:mixingradle:0.7.38'
+    }
+}
+
+plugins {
+    id 'java'
+    id 'net.minecraftforge.gradle' version '6.0.54'
+}
+
+apply plugin: 'org.spongepowered.mixin'
+
+mixin {
+    add sourceSets.main, 'tkgun.mixin-refmap.json'
+    config 'tkgun.mixins.json'
+}
+
+group = 'com.mechaniciancombat'
+version = mod_version
+base { archivesName = "MechanicianCombat-${minecraft_version}-forge" }
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+sourceSets {
+    gameTest {
+        java { srcDir 'src/test/java'; include 'com/mechaniciancombat/gametest/**' }
+        resources.srcDir 'src/test/resources'
+        compileClasspath += sourceSets.main.output + configurations.testCompileClasspath
+        runtimeClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+    }
+}
+
+minecraft {
+    mappings channel: 'official', version: minecraft_version
+    copyIdeResources = true
+    runs {
+        configureEach {
+            workingDirectory project.file('validation/forge-47.4.28/dev-run')
+            property 'forge.logging.console.level', 'info'
+            mods { tkgun { source sourceSets.main } }
+        }
+        client { }
+        server {
+            workingDirectory project.file('validation/forge-47.4.28/dev-server')
+            args '--nogui'
+        }
+        gameTestServer {
+            workingDirectory project.file('validation/forge-47.4.28/game-test')
+            property 'forge.enabledGameTestNamespaces', 'tkgun'
+            property 'tkgun.gametest.only', 'true'
+            args '--nogui'
+            mods {
+                tkguntests {
+                    source sourceSets.gameTest
+                }
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir { dirs 'libs' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    implementation fg.deobf('local:geckolib-forge-1.20.1:4.8.4')
+    implementation fg.deobf('local:curios-forge:5.11.1+1.20.1')
+    compileOnly fg.deobf('local:ShoulderSurfing-Forge-1.20.1:4.21.0')
+    compileOnly fg.deobf('local:combatroll-forge:1.3.3+1.20.1')
+    implementation fg.deobf('local:cloth-config:11.1.136-forge')
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    // GeckoLib already embeds MCLib as jar-in-jar; expose that same embedded file
+    // to javac for the project's direct MolangParser API usage without adding a runtime mod dependency.
+    compileOnly files("$buildDir/extracted/geckolib/mclib-20.jar")
+}
+
+tasks.register('extractGeckoLibMclib', Copy) {
+    from(zipTree(file('libs/geckolib-forge-1.20.1-4.8.4.jar'))) {
+        include 'META-INF/jarjar/mclib-20.jar'
+        eachFile { path = 'mclib-20.jar' }
+        includeEmptyDirs = false
+    }
+    into layout.buildDirectory.dir('extracted/geckolib')
+}
+
+tasks.named('compileJava').configure {
+    dependsOn tasks.named('extractGeckoLibMclib')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xmaxerrs', '1000']
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    inputs.property 'version', project.version
+    filteringCharset = 'UTF-8'
+    filesMatching('META-INF/mods.toml') { expand version: project.version }
+    doLast {
+        def metadata = new File(destinationDir, 'META-INF/mods.toml')
+        def text = java.nio.file.Files.readString(metadata.toPath(), java.nio.charset.StandardCharsets.UTF_8)
+        if (!text.contains('客户端、专服与玩法验收状态请见项目说明。')) {
+            throw new GradleException('Processed mods.toml lost its UTF-8 description text')
+        }
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest.attributes('Implementation-Title': 'MechanicianCombat',
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': 'Original: codex (for slienceXUE)',
+            'MixinConfigs': 'tkgun.mixins.json')
+    finalizedBy 'reobfJar'
+}
+
+tasks.register('verifyPortContracts', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.mechaniciancombat.item.BackpackTableTransitionContract'
+}
+
+// Separate, reobfuscated test mod for production-mapped server acceptance runs.
+// Test classes stay out of the distributable mod JAR.
+tasks.register('gameTestModJar', Jar) {
+    dependsOn tasks.named('testClasses')
+    archiveClassifier = 'gametests'
+    from(sourceSets.test.output) {
+        include 'com/mechaniciancombat/gametest/**'
+        include 'META-INF/mods.toml'
+        include 'pack.mcmeta'
+    }
+}
+
+reobf {
+    gameTestModJar { }
+}
+tasks.named('gameTestModJar').configure {
+    finalizedBy 'reobfGameTestModJar'
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyPortContracts')
+}
+
+// Reobfuscation retains archive entries. Normalize their timestamps and ordering
+// so identical sources produce the same final Forge JAR hash across clean builds.
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}

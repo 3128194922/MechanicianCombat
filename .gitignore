@@ -1,0 +1,18 @@
+.gradle/
+build/
+run/
+run-server/
+libs/
+tools/cache/
+*.log
+
+# Local IDE and packaging artifacts
+.idea/
+.mixin.out/
+META-INF/
+dist/
+MechanicianCombat.7z
+
+# Local test installations and captured evidence (kept out of source history)
+validation/
+docs/evidence/
