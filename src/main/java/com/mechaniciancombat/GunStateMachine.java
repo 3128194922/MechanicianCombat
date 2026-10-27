@@ -60,8 +60,8 @@ public final class GunStateMachine {
 	 */
 	public static boolean canFire(TkGun.State state) {
 		return switch (state) {
-			case ROLL, ROLL_TO_IDLE, SLIDE, SLIDE_READY, OVERHEAT, RELOAD, OVER -> false;
-			default -> true;          // IDLE / AIM* / FIRE / INSPECT
+			case ROLL, SLIDE, SLIDE_READY, OVERHEAT, RELOAD, OVER -> false;
+			default -> true;          // Includes roll recovery: firing interrupts the transition.
 		};
 	}
 

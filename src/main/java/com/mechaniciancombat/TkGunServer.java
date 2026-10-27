@@ -2081,17 +2081,6 @@ public class TkGunServer {
 			TkGunTexts.say(player, TkGunTexts.RELOADING, true);
 			return;
 		}
-		// ⚠️ 2026-10-15 用户："**正常按左键是不能开火的** —— 行走射击也得先瞄准，然后播行走射击的动画，
-		//    然后才能开火"：扣扳机的前提是**举着枪**（右键按住 = `isUsingItem()`）。
-		//    客户端那边已经先拦了一道（右键没按就不发开火包），这里是权威兜底（老客户端 / 改包的）。
-		if (!player.isUsingItem() && !st.deployed) {
-			playSound(player, TkGun.SND_DRY, 0.45F, 1.6F);
-			TkGunTexts.say(player, TkGunTexts.needAimText(), true);
-			// 打一行日志：验收/排查时"这次没出膛到底是被谁拦的"要能一眼看出来
-			TkGun.LOGGER.info("[tkgun] 扣扳机被拒（没举枪：isUsingItem=false）玩家={}",
-					player.getName().getString());
-			return;
-		}
 		// 开火资格由 GunStateMachine.canFire 统一决定。
 		if (!GunStateMachine.canFire(st.state)) {
 			playSound(player, TkGun.SND_DRY, 0.45F, 1.5F);

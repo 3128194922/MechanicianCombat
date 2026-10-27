@@ -1321,9 +1321,12 @@ public final class ProductionWindChargeAcceptanceMod {
         long now = level.getGameTime();
         state.lastShotAt = now - 1L;
         TkGunServer.tryFire(player, false);
-        if (!state.shotQueue.isEmpty() || state.mag != 4) {
-            throw new AssertionError("server accepted a hip-fire trigger without the gun-use/aim state");
+        if (state.shotQueue.size() != 1 || state.mag != 5
+                || GunAmmoData.savedMagazineCount(gun) != 5) {
+            throw new AssertionError("un-aimed trigger did not queue one shot and persist one magazine increment");
         }
+        state.shotQueue.clear();
+        state.shotAnimating = false;
 
         state.lastFireTick = now - 1L;
         state.lastShotAt = now - 1L;
@@ -1332,12 +1335,12 @@ public final class ProductionWindChargeAcceptanceMod {
             throw new AssertionError("production bowgun use did not enter the server item-use/aim state");
         }
         TkGunServer.tryFire(player, false);
-        if (state.shotQueue.size() != 1 || state.mag != 5
-                || GunAmmoData.savedMagazineCount(gun) != 5) {
+        if (state.shotQueue.size() != 1 || state.mag != 6
+                || GunAmmoData.savedMagazineCount(gun) != 6) {
             throw new AssertionError("aimed trigger did not enqueue exactly one shot and persist its magazine count");
         }
         TkGunServer.tryFire(player, false);
-        if (state.shotQueue.size() != 1 || state.mag != 5) {
+        if (state.shotQueue.size() != 1 || state.mag != 6) {
             throw new AssertionError("same-tick duplicate trigger queued or charged a second shot");
         }
 
@@ -1346,11 +1349,11 @@ public final class ProductionWindChargeAcceptanceMod {
         state.overheatUntil = now + TkGun.OVERHEAT_TICKS;
         state.lastFireTick = now - 1L;
         TkGunServer.tryFire(player, false);
-        if (!state.shotQueue.isEmpty() || state.mag != 5) {
+        if (!state.shotQueue.isEmpty() || state.mag != 6) {
             throw new AssertionError("overheated weapon accepted a trigger or changed magazine state");
         }
         player.stopUsingItem();
-        System.out.println("[tkguntests] PASS: production trigger rejected un-aimed/overheated/duplicate input; aimed input queued one shot and persisted exactly one magazine increment");
+        System.out.println("[tkguntests] PASS: production trigger accepted hip and aimed fire; overheated and duplicate input remained blocked");
     }
 
     private static void verifyHandThrownLoyaltyBolt(ServerLevel level) {

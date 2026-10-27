@@ -22,6 +22,80 @@ import java.util.UUID;
 @PrefixGameTestTemplate(false)
 public final class R396ContentGameTests {
     @GameTest(template = "empty", timeoutTicks = 20)
+    public static void rollRecoveryAllowsFire(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var player = net.minecraftforge.common.util.FakePlayerFactory.get(level,
+                new com.mojang.authlib.GameProfile(UUID.fromString("f8202522-0c6d-4ca2-ac49-a971e159144c"), "roll_fire_test"));
+        var gun = new net.minecraft.world.item.ItemStack(ModRegistries.BOWGUN.get());
+        var ring = net.minecraft.core.NonNullList.withSize(com.mechaniciancombat.item.GunAmmoData.SIZE,
+                net.minecraft.world.item.ItemStack.EMPTY);
+        ring.set(0, new net.minecraft.world.item.ItemStack(com.mechaniciancombat.TkGunServer.BOLT, 4));
+        com.mechaniciancombat.item.GunAmmoData.save(gun, ring, 0, level.registryAccess());
+        com.mechaniciancombat.item.GunAmmoData.saveMagazine(gun, 4, "tkgun:bolt");
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, gun);
+        var state = com.mechaniciancombat.TkGunServer.state(player);
+        long now = level.getGameTime();
+        state.lastShotAt = now - 1;
+        state.state = com.mechaniciancombat.TkGun.State.ROLL;
+        state.aimLockUntil = now + 20;
+        state.dashUntil = now + 60;
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.isEmpty() && state.mag == 4,
+                "fire must be blocked during the roll itself");
+        state.lastFireTick = now - 1;
+        state.state = com.mechaniciancombat.TkGun.State.ROLL_TO_IDLE;
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 5,
+                "roll recovery must accept a shot even while aim lock and dash remain active");
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 5,
+                "a duplicate recovery trigger must not consume another round");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20)
+    public static void hipFireDoesNotRequireAim(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var player = net.minecraftforge.common.util.FakePlayerFactory.get(level,
+                new com.mojang.authlib.GameProfile(UUID.fromString("2767823f-bd47-40ec-ad2b-672a412472c8"), "hip_fire_test"));
+        var gun = new net.minecraft.world.item.ItemStack(ModRegistries.BOWGUN.get());
+        var ring = net.minecraft.core.NonNullList.withSize(com.mechaniciancombat.item.GunAmmoData.SIZE,
+                net.minecraft.world.item.ItemStack.EMPTY);
+        ring.set(0, new net.minecraft.world.item.ItemStack(com.mechaniciancombat.TkGunServer.BOLT, 4));
+        com.mechaniciancombat.item.GunAmmoData.save(gun, ring, 0, level.registryAccess());
+        com.mechaniciancombat.item.GunAmmoData.saveMagazine(gun, 4, "tkgun:bolt");
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, gun);
+        var state = com.mechaniciancombat.TkGunServer.state(player);
+        long now = level.getGameTime();
+        state.lastShotAt = now - 1;
+        helper.assertTrue(!player.isUsingItem(), "test player must not be aiming");
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 5,
+                "hip fire must enqueue one shot and consume one round without aiming");
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 5,
+                "duplicate trigger in the same tick must not consume another round");
+        state.shotQueue.clear();
+        state.shotAnimating = false;
+        state.lastFireTick = now - 1;
+        state.lastShotAt = now - 1;
+        ModRegistries.BOWGUN.get().use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(player.isUsingItem(), "test player must be aiming");
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 6,
+                "aimed fire must still enqueue one shot");
+        player.stopUsingItem();
+        state.shotQueue.clear();
+        state.shotAnimating = false;
+        state.overheatUntil = now + 20;
+        state.lastFireTick = now - 1;
+        com.mechaniciancombat.TkGunServer.tryFire(player, false);
+        helper.assertTrue(state.shotQueue.isEmpty() && state.mag == 6,
+                "overheat must still block hip fire");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20)
     public static void r396ContentIsRegistered(GameTestHelper helper) {
         helper.assertTrue(ForgeRegistries.ENTITY_TYPES.containsKey(id("molten_golem")),
                 "r396 molten golem entity is missing");

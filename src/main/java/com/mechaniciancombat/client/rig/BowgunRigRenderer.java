@@ -355,7 +355,7 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 			}
 		}
 
-		super.renderRecursively(poseStack, animatable, bone, type, bufferSource, buffer, isReRender, partialTick,
+		super.renderRecursively(poseStack, animatable, bone, type, bufferSource, bufferSource.getBuffer(type), isReRender, partialTick,
 				packedLight, packedOverlay, red, green, blue, alpha);
 		if (chestBobTransform) {
 			poseStack.popPose();

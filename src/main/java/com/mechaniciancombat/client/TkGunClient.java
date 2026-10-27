@@ -943,13 +943,7 @@ public final class TkGunClient {
 			boolean holding = TkGun.holdingGun(client.player);
 			boolean noScreen = client.screen == null;
 			if (holding && noScreen) {
-				// ⚠️ 2026-10-15 用户："**正常按左键是不能开火的** —— 行走射击也得先瞄准，然后播
-				//    行走射击的动画，然后才能开火"：扣扳机的**前提是右键举着枪**（瞄准）。
-				//    所以这里先拦一道（不发包），服务端还会用 `isUsingItem()` 再权威判一次。
-				// ⚠️ 2026-10-17：**客户端不再自己当门**。原来这里是"没按右键就不发包"，
-				// 但专注（架枪）里本来就不需要右键，而且 focus 位万一没对上就会把这一发吞掉
-				// （用户 2026-10-16/17 两次报"专注状态不能射击"）。现在只要手持弩炮 + 没开界面就发，
-				// **行不行由服务端权威判定**（腰射没举枪时服务端会回一句"先按住右键举枪瞄准"）。
+				// 左键同时支持腰射和瞄准射击；服务端负责状态、弹药和冷却校验。
 				sendFirePacket(client,
 						GunClientState.focusish(client.player.getId()) ? "左键(专注)" : "左键");
 			} else {

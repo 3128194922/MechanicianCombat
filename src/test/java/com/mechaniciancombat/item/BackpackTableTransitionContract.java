@@ -11,6 +11,7 @@ public final class BackpackTableTransitionContract {
 				"removing a backpack must detach its installed modules");
 		check(!BackpackTableTransition.shouldDetachPreviousBackpack(false, true, false),
 				"inserting the first backpack must not detach unrelated modules");
+		com.mechaniciancombat.client.rig.ArmorPartPolicyContract.main(args);
 		AmmoRingRulesContract.main(args);
 		com.mechaniciancombat.client.ShoulderCameraAnglesContract.main(args);
 	}
