@@ -367,3 +367,10 @@
 - **客户端阶段**：G/H 均通过生产弹药环 UI 打开、64 枚点击回环/数量守恒、改装台背包核心/便携发射器安装及服务端 NBT 同步、瞄准动画截图。结果 `PASS_TWO_CLIENTS_CONNECTED_PRODUCTION_UI_ROUNDTRIPS_BACKPACK_TABLE_SYNC_AND_DEMO_END_MARKER_RECORDED`。tick marker 不证明翻滚/滑铲/射击实际输入；观察者端实体/击退/粒子/声音同步未测。
 - **证据**：`continued-final-default-window-runner-20261026.log`，端侧日志 `validation/forge-47.4.28/client-skin-off/logs/debug.log`、`client2-skin-off/logs/debug.log` 与更新后的 `final-multiplayer/` 截图/验收结果。运行后 `earlyWindowControl=true` 与服务器属性/JVM 参数均恢复。
 - **状态校正**：默认早显之前出现的 GLFW 失败不是稳定重现；当前正式哈希本轮默认配置双端通过启动与联机。移植仍未完成，待测项见验收矩阵。
+### 2026-10-27：r396 自动炮塔专项补验
+
+- 对照 r396 源码确认自动炮塔状态机的充能、攻击间隔、范围与冷却常量均已移植；未据此认定客户端渲染一致。
+- 新增 Forge GameTest：Curios 自动背包首次锁定最近目标，目标被移除后在下一次射击前切换；模拟控制器时钟完成十发、烟花/充能扣除、200 tick 冷却及满充恢复。`runGameTestServer` 共 11 项通过，日志见 `docs/evidence/r396-port/auto-turret-gametest-2026-10-27.log`。此测试直接推进控制器时钟，不证明实际持续游戏运行或弹体命中。
+- Java 17 / Forge 47.4.28 离线 `build` 成功，含既有合同检查；当前主 JAR SHA-256 `D8CBA69476846FE7E3450E5B2F0EDE871F23E516864E1762EBD8815905E99600`。本轮仅新增测试，未修改生产代码。
+- 尚未完成：真实客户端炮塔朝向、滚转、动画、声音，以及双玩家观察者同步与实际连续运行。不能将本次服务端测试作为这些项目的验收。
+

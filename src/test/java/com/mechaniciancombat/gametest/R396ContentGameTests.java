@@ -184,4 +184,70 @@ public final class R396ContentGameTests {
         helper.succeed();
     }
     private static ResourceLocation id(String name) { return new ResourceLocation("tkgun", name); }
+
+    @GameTest(template = "empty", timeoutTicks = 40)
+    public static void autoTurretReacquiresAndCompletesCooldown(GameTestHelper helper) throws Exception {
+        var level = helper.getLevel();
+        var owner = net.minecraftforge.common.util.FakePlayerFactory.get(level,
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "turret_cycle"));
+        var pos = helper.absolutePos(new BlockPos(8, 3, 8));
+        owner.moveTo(pos.getX(), pos.getY(), pos.getZ(), 0, 0);
+        var backpack = new net.minecraft.world.item.ItemStack(ModRegistries.COMBAT_BACKPACK.get());
+        com.mechaniciancombat.item.BackpackUpgradeData.installCore(backpack);
+        com.mechaniciancombat.item.BackpackUpgradeData.setLauncherType(backpack,
+                com.mechaniciancombat.item.BackpackUpgradeData.LauncherType.AUTO);
+        var curios = top.theillusivec4.curios.api.CuriosApi.getCuriosInventory(owner).resolve().orElseThrow();
+        curios.setEquippedCurio("back", 0, backpack);
+        owner.getInventory().offhand.set(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.FIREWORK_ROCKET, 16));
+        var first = EntityType.PIG.create(level);
+        var second = EntityType.PIG.create(level);
+        first.moveTo(pos.getX(), pos.getY(), pos.getZ() + 3, 0, 0);
+        second.moveTo(pos.getX() + 2, pos.getY(), pos.getZ() + 6, 0, 0);
+        first.setNoAi(true); second.setNoAi(true);
+        level.addFreshEntity(first); level.addFreshEntity(second);
+        var server = com.mechaniciancombat.TkGunServer.class;
+        var action = server.getDeclaredMethod("handleBackpackAction", net.minecraft.server.level.ServerPlayer.class,
+                com.mechaniciancombat.net.CombatBackpackFirePayload.class);
+        action.setAccessible(true);
+        var stateMethod = server.getDeclaredMethod("backpackState", net.minecraft.server.level.ServerPlayer.class, long.class);
+        stateMethod.setAccessible(true);
+        long now = level.getGameTime();
+        Object state = stateMethod.invoke(null, owner, now);
+        var cls = state.getClass();
+        var tick = server.getDeclaredMethod("tickAutoBackpack", net.minecraft.server.level.ServerPlayer.class, cls, long.class);
+        tick.setAccessible(true);
+        var charges = cls.getDeclaredField("charges"); charges.setAccessible(true);
+        var active = cls.getDeclaredField("autoActive"); active.setAccessible(true);
+        var target = cls.getDeclaredField("targetEntityId"); target.setAccessible(true);
+        var cooldown = cls.getDeclaredField("cooldownUntil"); cooldown.setAccessible(true);
+        var eye = owner.getEyePosition();
+        var payload = new com.mechaniciancombat.net.CombatBackpackFirePayload(eye.x, eye.y, eye.z + 0.5,
+                eye.x, eye.y, eye.z, 0, 0, 1, 1);
+        try {
+            action.invoke(null, owner, payload);
+            helper.assertTrue(charges.getInt(state) == 9 && target.getInt(state) == first.getId(),
+                    "first shot must select the nearest target and consume one charge");
+            first.discard();
+            tick.invoke(null, owner, state, now + 1);
+            helper.assertTrue(target.getInt(state) == second.getId() && charges.getInt(state) == 9,
+                    "removed target must be replaced without an early shot");
+            for (int shot = 1; shot < 10; shot++) tick.invoke(null, owner, state, now + shot * 20L);
+            helper.assertTrue(charges.getInt(state) == 0 && !active.getBoolean(state)
+                    && owner.getOffhandItem().getCount() == 6, "ten shots must consume ten rockets and enter cooldown");
+            long end = cooldown.getLong(state);
+            helper.assertTrue(end == now + 180 + 200, "cooldown must last 200 ticks");
+            tick.invoke(null, owner, state, end - 1);
+            helper.assertTrue(charges.getInt(state) == 0, "cooldown must not finish early");
+            tick.invoke(null, owner, state, end);
+            helper.assertTrue(charges.getInt(state) == 10 && cooldown.getLong(state) == 0,
+                    "cooldown must restore all charges at its deadline");
+        } finally {
+            first.discard(); second.discard();
+            curios.setEquippedCurio("back", 0, net.minecraft.world.item.ItemStack.EMPTY);
+            owner.getInventory().offhand.set(0, net.minecraft.world.item.ItemStack.EMPTY);
+            var clear = server.getDeclaredMethod("clearBackpackState", net.minecraft.server.level.ServerPlayer.class);
+            clear.setAccessible(true); clear.invoke(null, owner);
+        }
+        helper.succeed();
+    }
 }
