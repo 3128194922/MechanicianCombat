@@ -112,7 +112,12 @@ public class HeatVentParticle extends TextureSheetParticle {
 	}
 
 	private void quad(VertexConsumer vc, int light, float x, float y, float z, float u, float v) {
-		vc.vertex(x, y, z).uv(u, v).color(this.rCol, this.gCol, this.bCol, this.alpha).uv2(light);
+		writeVertex(vc, light, x, y, z, u, v, this.rCol, this.gCol, this.bCol, this.alpha);
+	}
+
+	static void writeVertex(VertexConsumer vc, int light, float x, float y, float z, float u, float v,
+			float red, float green, float blue, float alpha) {
+		vc.vertex(x, y, z).uv(u, v).color(red, green, blue, alpha).uv2(light).endVertex();
 	}
 
 	public record Factory(SpriteSet provider) implements ParticleProvider<SimpleParticleType> {

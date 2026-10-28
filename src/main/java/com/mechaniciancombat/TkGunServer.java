@@ -80,7 +80,7 @@ public class TkGunServer {
 	 * 先缓存，等 ROLL 真正开始再兑现成 0.38s 快速蹲射。
 	 */
 	private static final int DODGE_COMBO_BUFFER_TICKS = 10;
-	/** 翻滚 / 滑铲结束后继续屏蔽右键瞄准的时间（1 秒 = 20 tick）。 */
+	/** 滑铲结束后继续屏蔽右键瞄准的时间（1 秒 = 20 tick）。 */
 	public static final int AIM_LOCK_AFTER_DODGE_TICKS = 20;
 	/** One-charge fallback cooldown used only when Combat Roll is absent. */
 	private static final int FALLBACK_ROLL_COOLDOWN_TICKS = 80;
@@ -170,7 +170,7 @@ public class TkGunServer {
 		public long slideUntil;
 		public long slideCooldownUntil;
 		/**
-		 * 翻滚 / 滑铲结束后继续屏蔽**右键瞄准输入**的截止 tick。
+		 * 滑铲结束后继续屏蔽**右键瞄准输入**的截止 tick。
 		 *
 		 * <p>只影响右键举枪：不会复用 `dodgeBlockUntil`（那一条是 Alt 闪避冷却），
 		 * 也不会阻止 Z 技能进入专注。行动状态本身由 {@link #aimInputLocked} 一并覆盖。
@@ -257,7 +257,7 @@ public class TkGunServer {
 		 * **蹲射准备那一声栓声**的预定 tick（0 = 没有）。
 		 *
 		 * <p>用户 2026-10-17："将蹲射准备动作的音频替换为…栓声"。作者把这一声埋在 `Focus_ready`
-		 * 的 0.25s（快档 `fast_ready` 是 0.0833s）—— 这里按"那一拍占动画的比例 × 状态时长"换算成 tick，
+		 * 的 0.25s、`sliding_fast_ready` 的 0.0833s 或 `rolling_fast_ready` 的 0.0417s；这里按动画速度换算成 tick，
 		 * 由**服务端**排（附近所有人都听得见），客户端就不再报这一条关键帧（见 BowgunRig）。
 		 */
 		public long aimSoundAt;
@@ -322,19 +322,18 @@ public class TkGunServer {
 	/**
 	 * 右键瞄准输入现在是否被权威锁定。
 	 *
-	 * <p>覆盖范围：整段翻滚 / 翻滚过渡 / 滑铲 / 滑铲收势，以及它们结束后
+	 * <p>覆盖翻滚动作、滑铲及其收势，以及滑铲结束后
 	 * {@link #AIM_LOCK_AFTER_DODGE_TICKS} tick。锁定期间 {@code BowgunItem#use} 直接失败，
 	 * 服务端也会主动停止已经开始的“使用物品”，因此不会再进入举枪减速、镜头缩放或准星状态。
 	 */
 	public static boolean aimInputLocked(ServerPlayer player) {
 		PState st = state(player);
 		long now = player.level().getGameTime();
-		return st.state == TkGun.State.ROLL || st.state == TkGun.State.ROLL_TO_IDLE
+		return st.state == TkGun.State.ROLL
 				|| st.state == TkGun.State.SLIDE || st.state == TkGun.State.SLIDE_READY
 				|| st.state == TkGun.State.OVERHEAT || st.state == TkGun.State.OVER
 				|| st.state == TkGun.State.INSPECT
-				|| now < st.aimLockUntil || now < st.dashUntil
-				|| now < st.overheatUntil;
+				|| now < st.aimLockUntil || now < st.overheatUntil;
 	}
 
 	// ---------------------------------------------------------------- 曳光弹
@@ -927,8 +926,7 @@ public class TkGunServer {
 					state, st.stateUntil - stateNow, player.getName().getString());
 			return;
 		}
-		// 状态机每一次切换都打一行：自动化验证时不用猜——直接从服务端日志就能读出
-		// "何时进了 Focus_ready / Focus_shooting / Focus_over_shooting / sliding / sliding_ready"。
+		// 状态机每一次切换都打一行：从服务端日志可核对架枪、射击、滑铲与收势的状态切换时点。
 		if (st.state != state) {
 			TkGun.LOGGER.info("[tkgun] 状态 {} -> {} ({} ticks) 玩家={}",
 					st.state, state, ticks, player.getName().getString());
@@ -938,16 +936,17 @@ public class TkGunServer {
 		st.stateStarted = player.level().getGameTime();
 		st.stateUntil = ticks <= 0 ? 0 : st.stateStarted + ticks;
 		// **蹲射准备那一声 = 素材 `栓声.ogg`**（用户 2026-10-17："将蹲射准备动作的音频替换为…栓声"）。
-		// 作者把它埋在 `Focus_ready` 的 0.25s、`fast_ready` 的 0.0833s —— 按"那一拍占动画的比例 ×
-		// 这个状态的 tick 数"换算：AIM（24 tick / 1.0s）→ 6；AIM_FAST（14 tick / 0.667s）→ 2；
-		// AIM_SLIDE（7 tick，约 2 倍速）→ 1。统一放在这个**状态切换的唯一入口**里，所有进架枪的路
+		// 作者把它埋在 `Focus_ready` 的 0.25s、`sliding_fast_ready` 的 0.0833s、
+		// `rolling_fast_ready` 的 0.0417s。按动画速度和 20 tick/s 换算：AIM（0.83 倍）→ 6；
+		// AIM_FAST（1 倍）→ 2；AIM_ROLL（1 倍）与 AIM_SLIDE（2 倍）→ 1 tick。
+		// 统一放在这个**状态切换的唯一入口**里，所有进架枪的路
 		// （Z / 滑铲抢枪 / 换弹后重举 / 翻滚收势）都自动带上，不会漏也不会重复。
 		// 这一声由服务端放（附近所有人都听得见）；客户端那几段不再报 `bolt`，免得旁观者听到两声。
 		if (entering && (state == TkGun.State.AIM || state == TkGun.State.AIM_FAST
 				|| state == TkGun.State.AIM_ROLL
 				|| state == TkGun.State.AIM_SLIDE)) {
 			st.aimSoundAt = st.stateStarted + (state == TkGun.State.AIM ? 6
-					: (state == TkGun.State.AIM_FAST || state == TkGun.State.AIM_ROLL ? 2 : 1));
+					: (state == TkGun.State.AIM_FAST ? 2 : 1));
 		}
 		broadcast(server, player, state, ticks, st.heat);
 	}
@@ -2052,7 +2051,7 @@ public class TkGunServer {
 	public static int aimTicks(ServerPlayer player) {
 		PState st = state(player);
 		long now = player.level().getGameTime();
-		// 冲刺加成窗口里也算"快档"：那条路进专注用的是 `fast_ready`（见 startFocus）。
+		// 冲刺加成窗口里也算"快档"：那条路使用 `sliding_fast_ready`（见 startFocus）。
 		return (now < st.fastAimUntil || now < st.dashUntil || player.isShiftKeyDown())
 				? TkGun.AIM_TICKS_FAST : TkGun.AIM_TICKS_NORMAL;
 	}
@@ -3197,13 +3196,10 @@ public class TkGunServer {
 		// 进入动画 = 作者的 `Focus_ready`（起枪 → 落到架枪定格），播完 tickAll 接到 AIM_HOLD 保持。
 		// ⚠️ 2026-10-16 用户把两段过门动画的用途定死了：**进入 = Focus_ready、退出 = Focus_over**
 		//    （"按下进入专注模式，再次输入则退出并使用 Focus_over 动画"）—— 所以这里不再是 OVER。
-		// **冲刺加成窗口里按 Z → 准备动作换成 `fast_ready`**（用户 2026-10-17："在这段加成时间内如果
-		// 输入专注按键则使用 fast_ready 作为专注准备动画，此动画准备时间要快于通常准备动作，详情见
-		// 资源文件夹中的动画时间线"）。作者的时间线：`fast_ready` 0.6667s / `Focus_ready` 1.0s ——
-		// 所以状态时长 14 tick vs 24 tick（TkGun.AIM_TICKS_FAST / _NORMAL）；客户端 `pick` 里
-		// AIM_FAST 播的就是 `fast_ready`，蹲射准备那声栓声也会按它 0.0833s 那一拍排（+2 tick）。
+		// **冲刺加成窗口里按 Z 曾计划切快档**（用户 2026-10-17），后来用户取消了该效果：
+		// 现在仍走普通 `Focus_ready`，AIM_FAST 保留给换弹 / 退出过门后重新举枪。
 		// ⚠️ 2026-10-17 用户："取消加速状态下的快速专注功能" —— 冲刺窗口里按 Z 也走**普通**过门
-		// （`Focus_ready`，`AIM_TICKS_NORMAL`），不再切 `AIM_FAST`/`fast_ready`。（滑铲中按 Z 仍走
+		// （`Focus_ready`，`AIM_TICKS_NORMAL`），不再切 `AIM_FAST`/`sliding_fast_ready`。（滑铲中按 Z 仍走
 		// `AIM_SLIDE` → `sliding_fast_ready`，那是另一条需求。）
 		if (now < st.dashUntil) {
 			TkGun.LOGGER.info("[tkgun] 进专注 -> 清空冲刺加成（原剩余 {} tick）玩家={}",
@@ -3216,9 +3212,6 @@ public class TkGunServer {
 				: (fromRoll ? TkGun.State.AIM_ROLL : TkGun.State.AIM);
 		int aimStateTicks = fromSlide ? TkGun.AIM_TICKS_SLIDE
 				: (fromRoll ? TkGun.AIM_TICKS_FAST : TkGun.AIM_TICKS_NORMAL);
-		if (fromRoll) {
-			lockAimAfterDodge(st, now);
-		}
 		st.quickFocusGuardUntil = (fromRoll || fromSlide) ? now + 4 : 0;
 		setState(server, player, aimState, aimStateTicks);
 		// 音效：**蹲射准备 = 素材 `栓声.ogg`**（用户 2026-10-17："将蹲射准备动作的音频替换为…栓声"）。
@@ -3306,7 +3299,7 @@ public class TkGunServer {
 		return Math.abs(player.zza) > 0.01F || Math.abs(player.xxa) > 0.01F;
 	}
 
-	/** 动作结束：从这一 tick 起再屏蔽右键瞄准 1 秒。只延长，不缩短已有窗口。 */
+	/** 滑铲结束后继续屏蔽右键瞄准 1 秒。只延长，不缩短已有窗口。 */
 	private static void lockAimAfterDodge(PState st, long now) {
 		st.aimLockUntil = Math.max(st.aimLockUntil, now + AIM_LOCK_AFTER_DODGE_TICKS);
 	}
@@ -3361,7 +3354,7 @@ public class TkGunServer {
 				persistHipMagazine(player, st);
 			}
 
-			// 翻滚/滑铲及结束后 1 秒：右键是完全屏蔽的。玩家可能在这之前已经按住右键，
+			// 翻滚动作、滑铲及滑铲结束后 1 秒屏蔽右键。玩家可能在这之前已经按住右键，
 			// 仅让 `BowgunItem#use` 返回 fail 不会结束已经开始的 use，所以这里每 tick 权威兜底。
 			if (aimInputLocked(player) && player.isUsingItem()
 					&& player.getUsedItemHand() == InteractionHand.MAIN_HAND
@@ -3383,7 +3376,7 @@ public class TkGunServer {
 				st.combo = 0;
 			}
 			// **蹲射准备那一声栓声**（用户 2026-10-17："将蹲射准备动作的音频替换为…栓声"）：
-			// 时间点 = 作者埋在 `Focus_ready` 0.25s / `fast_ready` 0.0833s 的那一拍（进状态时已换算成 tick）。
+			// 时间点 = 作者埋在 `Focus_ready` / `sliding_fast_ready` / `rolling_fast_ready` 的那一拍（已换算成 tick）。
 			// 被翻滚 / 过热打断就不放了（那时候人已经不在架枪）。
 			if (st.aimSoundAt > 0 && now >= st.aimSoundAt) {
 				st.aimSoundAt = 0;
@@ -3475,7 +3468,6 @@ public class TkGunServer {
 					&& TkGun.holdingGun(player) && wantsMove(player)) {
 				st.stateUntil = 0;
 				st.state = TkGun.State.IDLE;
-				lockAimAfterDodge(st, now);
 				broadcast(server, player, TkGun.State.IDLE, 0, st.heat);
 				TkGun.LOGGER.info("[tkgun] 翻滚收势期间出现移动输入 -> 立即切回行走/奔跑 玩家={}",
 						player.getName().getString());
@@ -3496,7 +3488,6 @@ public class TkGunServer {
 				// 快速专注只能由翻滚 0.38 秒处的组合输入进入，不再经过额外过渡动作。
 				if (ended == TkGun.State.ROLL) {
 					if (holding && wantsMove(player)) {
-						lockAimAfterDodge(st, now);
 						broadcast(server, player, TkGun.State.IDLE, 0, st.heat);
 					} else {
 						TkGun.LOGGER.info("[tkgun] 翻滚结束（站定）-> roll_to_idle 玩家={}",
@@ -3505,7 +3496,6 @@ public class TkGunServer {
 								CombatRollHook.ROLL_TO_IDLE_TICKS);
 					}
 				} else if (ended == TkGun.State.ROLL_TO_IDLE) {
-					lockAimAfterDodge(st, now);
 					broadcast(server, player, TkGun.State.IDLE, 0, st.heat);
 				} else if (ended == TkGun.State.SLIDE || ended == TkGun.State.SLIDE_READY) {
 					lockAimAfterDodge(st, now);
@@ -3516,11 +3506,11 @@ public class TkGunServer {
 						//    换弹动画（`reload`）的尾帧是"人侧身、枪端在胸前"，**不是架枪姿势** ——
 						//    以前这里跟打完一发一样直接发 AIM_HOLD（= 客户端 CONTINUE 保持尾帧），
 						//    保持住的自然是那个换弹尾帧。所以换完弹要**显式再举一次枪**：
-						//    播作者的快速起枪 `fast_ready`（0.667 秒），它的尾帧就是架枪定格。
+						//    播作者的快速起枪 `sliding_fast_ready`（0.667 秒），它的尾帧就是架枪定格。
 						//
 						// 退出专注后必须显式重播举枪动画，不能保持 Focus_over 的站姿尾帧。
 						//    进入专注的过门动画 `Focus_over` 的**尾帧也是站姿**（实测 `body.position` 末帧
-						//    = [0,0,0]，而架枪姿势 `fast_ready`/`Focus_ready` 的末帧是 `[0,-8,0]` 蹲着）
+						//    = [0,0,0]，而架枪姿势 `sliding_fast_ready`/`Focus_ready` 的末帧是 `[0,-8,0]` 蹲着）
 						//    → OVER 结束也必须**显式再举一次枪**，不能直接 AIM_HOLD 保持 Focus_over 的尾针。
 						setState(server, player, TkGun.State.AIM_FAST, TkGun.AIM_TICKS_FAST);
 					} else {
@@ -3583,9 +3573,9 @@ public class TkGunServer {
 					round3(Math.sqrt(dx * dx + dz * dz)),
 					round3(dx * st.slideDirX + dz * st.slideDirZ),
 					TkGun.SLIDE_DISTANCE, TkGun.SLIDE_TICKS);
-			// 滑到终点时右键仍按着则播放 sliding_ready 收势；滑行中右键走 startSlideBrace。
+			// 滑到终点时右键仍按着则播放滑铲快举枪收势；滑行中右键走 startSlideBrace。
 			if (TkGun.holdingGun(player) && player.isUsingItem() && !TkGun.State.isAiming(st.state)) {
-				TkGun.LOGGER.info("[tkgun] 滑铲自然结束且右键仍按着 -> 播收势 sliding_ready 玩家={}",
+				TkGun.LOGGER.info("[tkgun] 滑铲自然结束且右键仍按着 -> 播收势 sliding_fast_ready 玩家={}",
 						player.getName().getString());
 				startSlideReady(player);
 			}
@@ -3623,7 +3613,7 @@ public class TkGunServer {
 	}
 
 	/**
-	 * 滑铲收势：播放 {@code sliding_ready}，结束后回到 IDLE 或重新举枪。
+	 * 滑铲收势：客户端播放 {@code sliding_fast_ready}，结束后回到 IDLE 或重新举枪。
 	 *
 	 * <p>触发条件是"**滑铲自然滑到终点时右键还按着**"（见 {@code tickSlide} 里滑完那一下）。
 	 * 滑铲中按右键走更快的 {@link #startSlideBrace} 路径。
@@ -3669,7 +3659,7 @@ public class TkGunServer {
 				|| st.state == TkGun.State.SLIDE || st.state == TkGun.State.SLIDE_READY) {
 			return;
 		}
-		// **翻滚后的加速冲刺期间不算瞄准**（用户 2026-10-17 保留的那半）：
+		// 翻滚加速期间保留加速效果，举枪不施加下面的移动减速：
 		// 疾跑不再挡瞄准 —— 用户："撤销原版疾跑不允许瞄准的设定，在原版疾跑状态下瞄准会终止疾跑并
 		// 进入站立射击状态"；终止疾跑由下面的 `player.setSprinting(false)` 负责（客户端也同步压一次）。
 		if (player.level().getGameTime() < st.dashUntil) {

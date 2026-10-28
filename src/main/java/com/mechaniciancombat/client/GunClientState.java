@@ -33,13 +33,12 @@ public final class GunClientState {
 		 */
 		public boolean focus;
 	/**
-	 * **翻滚后的加速冲刺窗口里**（服务端 `dashUntil` 未到，2026-10-17 加）—— 客户端据此**禁止右键瞄准**
-	 * （用户："疾跑与翻滚加速状态下不允许进行右键瞄准"）。
+	 * 翻滚后的加速冲刺窗口（服务端 `dashUntil` 未到）；用于移动和闪避状态。
 	 */
 	public boolean dashing;
 		public String magAmmo = "";
 	/**
-	 * 翻滚 / 滑铲结束后继续屏蔽右键瞄准的客户端截止 tick（和服务端 `aimLockUntil` 对齐）。
+	 * 滑铲结束后继续屏蔽右键瞄准的客户端截止 tick（和服务端 `aimLockUntil` 对齐）。
 	 * 注意这只是**右键输入锁**，不是 Alt 闪避冷却。
 	 */
 	public int aimLockUntil;
@@ -177,7 +176,7 @@ public final class GunClientState {
 		}
 		if (e.state == TkGun.State.AIM || e.state == TkGun.State.AIM_FAST
 				|| e.state == TkGun.State.AIM_ROLL || e.state == TkGun.State.AIM_SLIDE
-				|| e.state == TkGun.State.ROLL || e.state == TkGun.State.ROLL_TO_IDLE
+				|| e.state == TkGun.State.ROLL
 				|| e.state == TkGun.State.SLIDE || e.state == TkGun.State.SLIDE_READY) {
 			return false;
 		}
@@ -291,9 +290,10 @@ public final class GunClientState {
 			case IDLE:
 				return "idle";                       // 待机（作者新做的 idle）
 			case AIM:
+				return "Focus_ready";
 			case AIM_FAST:
 			case AIM_SLIDE:
-				return "Focus_ready";                // 架枪（倍速按状态分三档，见 speedFor）
+				return "sliding_fast_ready";         // 快档 / 滑铲抢枪
 			case AIM_ROLL:
 				return "rolling_fast_ready";         // 翻滚后的快速蹲射过门
 			case AIM_HOLD:
@@ -309,8 +309,7 @@ public final class GunClientState {
 			case SLIDE:
 				return "sliding";
 			case SLIDE_READY:
-				// ⚠️ 新素材（BG261013 v2）把 `sliding_ready` 删了，换成同样 0.667 秒的 `fast_ready`
-				return "fast_ready";
+				return "sliding_fast_ready";         // 滑铲收势
 			case OVER:
 				return "Focus_over";                 // 进入强化：把炮抬到肩上（1 秒）
 			case RELOAD:
@@ -347,8 +346,7 @@ public final class GunClientState {
 		}
 		return switch (e.state) {
 			case AIM -> 0.83D;
-			// 快档现在是作者新做的 `fast_ready`（0.667 秒），所以 1 倍速就够快；
-			// 滑铲里抢架枪再压到 2 倍速（0.33 秒）。老做法是拿 Focus_ready 播 2x/3x。
+			// 普通快档使用 `sliding_fast_ready`（约 0.667 秒）；滑铲里抢架枪压到 2 倍速。
 			case AIM_FAST -> 1.0D;
 			case AIM_SLIDE -> 2.0D;
 			case AIM_ROLL -> 1.0D;
@@ -376,24 +374,24 @@ public final class GunClientState {
 		return e != null && e.state == TkGun.State.OVERHEAT;
 	}
 
-	/** 这位玩家现在在**翻滚后的加速冲刺窗口**里吗（服务端广播的 `dashing` 位；禁止右键瞄准）。 */
+	/** 这位玩家现在在翻滚后的加速冲刺窗口里吗。 */
 	public static boolean dashing(int entityId) {
 		Entry e = ENTRIES.get(entityId);
 		return e != null && e.dashing && ticks < e.dashUntil;
 	}
 
-	/** 这位玩家现在是否处于翻滚 / 滑铲及其结束后的右键瞄准锁里。 */
+	/** 这位玩家现在是否处于禁止右键瞄准的动作或冷却中。 */
 	public static boolean aimLocked(int entityId) {
-		Entry e = ENTRIES.get(entityId);
-		if (e == null) {
-			return false;
-		}
-		return dashing(entityId) || ticks < e.heatLockUntil || e.heat >= TkGun.HEAT_MAX
-				|| e.state == TkGun.State.ROLL || e.state == TkGun.State.ROLL_TO_IDLE
+		return aimLocked(ENTRIES.get(entityId), ticks);
+	}
+
+	static boolean aimLocked(Entry e, int now) {
+		if (e == null) return false;
+		return now < e.heatLockUntil || e.heat >= TkGun.HEAT_MAX
+				|| e.state == TkGun.State.ROLL
 				|| e.state == TkGun.State.SLIDE || e.state == TkGun.State.SLIDE_READY
 				|| e.state == TkGun.State.OVERHEAT || e.state == TkGun.State.OVER
-				|| e.state == TkGun.State.INSPECT
-				|| ticks < e.aimLockUntil;
+				|| e.state == TkGun.State.INSPECT || now < e.aimLockUntil;
 	}
 
 	/**

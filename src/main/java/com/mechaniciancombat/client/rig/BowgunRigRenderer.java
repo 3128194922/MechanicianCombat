@@ -28,7 +28,8 @@ import java.util.Map;
 /**
  * 玩家 rig 的 GeckoLib 渲染器。
  *
- * <p>主渲染（玩家皮肤）只画身体：**在 {@link #renderCubesOfBone} 里把非身体骨骼的方块跳过**。
+ * <p>本渲染器只评估 GeckoLib 动画并采样玩家姿势；玩家身体与皮肤由原版 {@code PlayerRenderer} 绘制，
+ * 枪件与特效由 {@link BowgunGunLayer} 绘制。这里不直接绘制任何几何，避免重复玩家模型。
  *
  * <p>⚠️ 别改用 {@code bone.setHidden(true)} 来藏枪：GeckoLib 里 hidden 会**连子骨骼一起
  * 不遍历**（renderChildBones 见到 isHidingChildren 直接 return），而枪件是
@@ -40,8 +41,8 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 	public static final Set<String> BODY_BONES = Set.of(
 			"chest", "head", "arm_left", "arm_right", "leg_left", "leg_right");
 	/**
-	 * 遍历时顺手记下身体那 6 根 + 它们的父骨 {@code body} 的引用（现在只用于诊断/自检；
-	 * 2026-10-14 试过用它给原版模型/盔甲折父链，那套已按用户要求撤掉了，见 SKILL.md）。
+	 * 遍历时采样身体那 6 根 + 它们的父骨 {@code body}，供 PlayerAnimator 应用到原版玩家模型；
+	 * 玩家盔甲仍由原版及各模组装备渲染层绘制。
 	 */
 	private static final Set<String> POSE_BONES = Set.of(
 			"body", "chest", "head", "arm_left", "arm_right", "leg_left", "leg_right");
@@ -108,14 +109,9 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 	public BowgunRigRenderer(EntityRendererProvider.Context context) {
 		super(context, new BowgunRigModel(), BowgunRig.INSTANCE);
 		addRenderLayer(new BowgunGunLayer(this));
-		// **玩家皮肤第二层**（头发/帽子/衣服覆盖层）：用户 2026-10-17 要求。
-		// 我们接管玩家模型后，身体 6 块骨骼的 UV 是按"第一层"写死的，原版那套第二层方块就没了 ——
-		// 这一层把同样的方块按第二层 UV 再画一遍（并沿法线外扩一点点防 z-fighting），见 BowgunSkinLayer。
-		addRenderLayer(new BowgunSkinLayer(this));
-		// 原版 ArmorFeatureRenderer 随整条 PlayerEntityRenderer 一起被取消；这一层在同样的身体骨骼上
-		// 按原版盔甲贴图重画头盔/胸甲/护腿/靴子，见 BowgunArmorLayer。
-		addRenderLayer(new BowgunArmorLayer(this));
 		addRenderLayer(new CombatBackpackRigLayer(this));
+		// 玩家本体、皮肤外层、盔甲、披风和 Curios 由 PlayerRenderer 的原版层绘制。
+		// 本 renderer 只输出枪骨架，外部 GeckoLib 盔甲继续走自己的 GeoArmorRenderer。
 		// ⚠️ **气流那一层默认不开**（2026-10-16 用户实测反馈："枪口特效完全糊着、像管风琴一列一列
 		//    排开、太小"）：v4 素材把枪口焰第 2/3/4 帧那三块平面改成采样 `airflow.png` 的一整帧
 		//    （32x32 = 2 格大的白云团），三块正好在炮管前方 z=-66/-62/-58 排成一列 →
@@ -125,20 +121,14 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 		// addRenderLayer(new BowgunAirflowLayer(this));
 	}
 
-	/** 身体那 6 根骨头的引用（每帧遍历时顺手记下），给 {@link RigPose} 把位姿搬到原版模型上用。 */
-	private final Map<String, GeoBone> bodyBones = new HashMap<>();
-
-	public GeoBone bone(String name) {
-		return bodyBones.get(name);
-	}
+	/** Local bone transforms from this render pass, consumed by the vanilla PlayerModel through PlayerAnimator. */
+	private final Map<String, BowgunPlayerAnimatorPose.BonePose> playerPose = new HashMap<>();
 
 	@Override
 	public void renderCubesOfBone(PoseStack poseStack, GeoBone bone, VertexConsumer buffer,
 								  int packedLight, int packedOverlay, float red, float green, float blue, float alpha) {
-		if (!BODY_BONES.contains(bone.getName())) {
-			return;   // 枪件由 BowgunGunLayer 换贴图补画
-		}
-		super.renderCubesOfBone(poseStack, bone, buffer, packedLight, packedOverlay, red, green, blue, alpha);
+		// 几何统一由原版 PlayerRenderer（玩家身体/皮肤）与 BowgunGunLayer（枪械/特效）负责。
+		// GeckoLib 仍遍历骨骼、执行动画和调用 renderForBone，因此枪械动画与定位器照常工作。
 	}
 
 	/**
@@ -168,11 +158,8 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 		if (currentFrame && ROOT_BONE.equals(name)) {
 			lastAimPos = null;
 			lastMuzzlePos = null;
+			playerPose.clear();
 		}
-		if (POSE_BONES.contains(name)) {
-			bodyBones.put(name, bone);   // 给 RigPose（原版模型/盔甲那层）用
-		}
-
 		// **上半身叠层（举枪 / 开火）时特效平面怎么处理**（2026-10-15 素材 v3）：
 		//   * 真开火那一发：腿在 walk_*/idle 上，枪口焰/速度线/弹壳来自叠层的 `stand_shooting`
 		//     → 把父骨 scale 写回 1（父骨被动画压成 0 的话子骨也看不见，见 FLASH_PARENT_BONES 注释）；
@@ -198,16 +185,17 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 			bone.setRotX(0.0F);
 		}
 		boolean chestBobTransform = false;
+		float chestBobPx = 0.0F;
 		if (bodyLocked && CHEST_BONE.equals(name)) {
 			String walk = TkGunClient.walkAnimation(poseEntity.getId());
 			if (walk != null && walk.startsWith("walk_")) {
 				// 把作者 walk_* 的 chest.position.y 曲线叠加到腰射上半身。
-				float bobPx = walkChestBobPx(TkGunClient.walkPhase(poseEntity.getId()));
+				chestBobPx = walkChestBobPx(TkGunClient.walkPhase(poseEntity.getId()));
 				// 这段位移只属于 chest 子树。renderRecursively 自己 push/pop，
 				// 但本方法在 super 之前操作 poseStack，必须在调用返回后配对恢复，
 				// 否则 body 的后续同级骨骼会继承胸部 bob 位移。
 				poseStack.pushPose();
-				poseStack.translate(0.0F, bobPx / 16.0F, 0.0F);
+				poseStack.translate(0.0F, chestBobPx / 16.0F, 0.0F);
 				chestBobTransform = true;
 			}
 		}
@@ -357,6 +345,22 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 
 		super.renderRecursively(poseStack, animatable, bone, type, bufferSource, bufferSource.getBuffer(type), isReRender, partialTick,
 				packedLight, packedOverlay, red, green, blue, alpha);
+		if (currentFrame && POSE_BONES.contains(name)) {
+			playerPose.put(name, new BowgunPlayerAnimatorPose.BonePose(
+					bone.getPosX(), bone.getPosY() + chestBobPx, bone.getPosZ(),
+					bone.getRotX(), bone.getRotY(), bone.getRotZ(),
+					bone.getPivotX(), bone.getPivotY(), bone.getPivotZ()));
+		}
+		if (currentFrame && ROOT_BONE.equals(name)) {
+			BowgunPlayerAnimatorPose.capture(renderedEntity.getId(), playerPose);
+		}
+		if (currentFrame && MUZZLE_BONE.equals(name)) {
+			// GeckoLib updates the tracked world matrix inside super; reading it before
+			// that call returns the previous frame (or another player's position).
+			org.joml.Vector3d position = bone.getWorldPosition();
+			LOCATOR_POSITIONS.put(renderedEntity.getId(), new LocatorSample(
+					new Vec3(position.x, position.y, position.z), renderedEntity.level().getGameTime()));
+		}
 		if (chestBobTransform) {
 			poseStack.popPose();
 		}
@@ -364,8 +368,6 @@ public class BowgunRigRenderer extends GeoReplacedEntityRenderer<AbstractClientP
 		// 用 locator - aim 得到视觉枪管中心线，而不是假设枪沿 locator 的局部 -Z。
 		if (currentFrame && ROOT_BONE.equals(name)
 				&& lastAimPos != null && lastMuzzlePos != null) {
-			LOCATOR_POSITIONS.put(renderedEntity.getId(),
-					new LocatorSample(lastMuzzlePos, renderedEntity.level().getGameTime()));
 			Vec3 dir = lastMuzzlePos.subtract(lastAimPos);
 			if (local && dir.lengthSqr() > 1.0E-8D) {
 				TkGunClient.captureMuzzle(lastAimPos, lastMuzzlePos, dir.normalize());

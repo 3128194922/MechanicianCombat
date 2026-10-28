@@ -83,12 +83,27 @@ public final class ShoulderSurfBridge {
 			if (api == null) {
 				return false;
 			}
+			previous = null;
 			if (Perspective.current() != Perspective.SHOULDER_SURFING) {
 				previous = Perspective.current();
 				api.changePerspective(Perspective.SHOULDER_SURFING);
 			}
 			return true;
 		} catch (Throwable t) {
+			return false;
+		}
+	}
+
+	/** Reassert shoulder view after another mod changed it, without replacing the saved view. */
+	public static boolean ensureOverShoulder() {
+		try {
+			IShoulderSurfing api = ShoulderSurfing.getInstance();
+			if (api == null) return false;
+			if (Perspective.current() != Perspective.SHOULDER_SURFING) {
+				api.changePerspective(Perspective.SHOULDER_SURFING);
+			}
+			return Perspective.current() == Perspective.SHOULDER_SURFING;
+		} catch (Throwable ignored) {
 			return false;
 		}
 	}

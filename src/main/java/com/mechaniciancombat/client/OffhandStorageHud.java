@@ -26,10 +26,9 @@ public final class OffhandStorageHud {
 		int height = context.guiHeight();
 		int x = offhandArm == HumanoidArm.LEFT ? width / 2 - 91 - 29 : width / 2 + 91;
 		int y = height - 23;
-		ResourceLocation texture = new ResourceLocation("minecraft",
-				"textures/gui/sprites/hud/" + (offhandArm == HumanoidArm.LEFT
-						? "hotbar_offhand_left.png" : "hotbar_offhand_right.png"));
-		context.blit(texture, x, y, 0, 0, 29, 24, 32, 32);
+		ResourceLocation texture = new ResourceLocation("minecraft", "textures/gui/widgets.png");
+		int u = offhandArm == HumanoidArm.LEFT ? 24 : 53;
+		context.blit(texture, x, y, u, 22, 29, 24, 256, 256);
 	}
 
 	private OffhandStorageHud() {

@@ -1,5 +1,6 @@
 package com.mechaniciancombat.client;
 
+import com.mechaniciancombat.TkGun;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.EntityModel;
@@ -20,6 +21,10 @@ public final class CombatBackpackCurioRenderer implements ICurioRenderer {
 			MultiBufferSource consumers, int light, float limbAngle, float limbDistance,
 			float tickDelta, float animationProgress, float yHeadRot, float headPitch) {
 		LivingEntity wearer = slotContext.entity();
+		// The gun rig attaches the backpack to its animated chest bone while held.
+		if (wearer instanceof net.minecraft.world.entity.player.Player player && TkGun.holdingGun(player)) {
+			return;
+		}
 		if (wearer == Minecraft.getInstance().player
 				&& Minecraft.getInstance().options.getCameraType().isFirstPerson()) {
 			return;

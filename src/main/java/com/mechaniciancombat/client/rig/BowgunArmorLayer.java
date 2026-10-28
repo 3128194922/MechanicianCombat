@@ -37,12 +37,13 @@ import software.bernie.geckolib.renderer.layer.GeoRenderLayer;
 import java.util.List;
 
 /**
- * 把原版玩家盔甲画在 GeckoLib rig 的身体骨骼上。
+ * 旧版自定义玩家 rig 的盔甲绘制器，目前未注册、不会参与渲染。
  *
- * <p>本模组在手持破垒重炮时取消的是**整条 PlayerEntityRenderer**，原版
- * {@code ArmorFeatureRenderer} 也跟着不执行。这里不能再拿原版 PlayerEntityModel 近似 rig 姿势
- * （那会造成之前出现过的肢体变形），而是在每一根身体骨骼自己的 poseStack 里，把该骨骼的方块
- * 按盔甲贴图再画一遍：
+ * <p>当前架构保留原版 {@code PlayerRenderer} 和其装备特征层；PlayerAnimator 将动作应用到原版玩家模型，
+ * GeckoLib rig 只绘制枪械。不要把此层重新添加到 {@code BowgunRigRenderer}：它会再画一遍原版盔甲，
+ * 并绕开其它模组自己的盔甲渲染器。
+ *
+ * <p>以下代码保留的是旧方案：在每一根 GeckoLib 身体骨骼自己的 poseStack 里，把该骨骼的方块按盔甲贴图再画一遍：
  *
  * <ul>
  *   <li>头盔 → {@code head}</li>
@@ -144,20 +145,11 @@ public final class BowgunArmorLayer extends GeoRenderLayer<BowgunRig> {
 		if (part == null || reference == null || reference.isEmpty()) return false;
 		ModelPart.Cube cube = reference.getRandomCube(REFERENCE_CUBE_RANDOM);
 		GeoCube geo = bone.getCubes().get(0);
-		float sx = (float)(geo.size().x() / Math.abs(cube.maxX - cube.minX));
-		float sy = (float)(geo.size().y() / Math.abs(cube.maxY - cube.minY));
-		float sz = (float)(geo.size().z() / Math.abs(cube.maxZ - cube.minZ));
-		if (sx == 0 || sy == 0 || sz == 0) return false;
 		PartPose saved = part.storePose();
 		boolean wasVisible = part.visible;
 		poseStack.pushPose();
 		try {
-			poseStack.scale(-1, -1, 1);
-			poseStack.scale(sx, sy, sz);
-			part.setPos(-bone.getPivotX() / sx, -bone.getPivotY() / sy, bone.getPivotZ() / sz);
-			part.xRot = -bone.getRotX();
-			part.yRot = -bone.getRotY();
-			part.zRot = bone.getRotZ();
+			if (!ArmorModelAlignment.apply(poseStack, geo, cube, part)) return false;
 			part.visible = true;
 			ResourceLocation mat = ResourceLocation.tryParse(armor.getMaterial().getName());
 			if (mat == null) return false;

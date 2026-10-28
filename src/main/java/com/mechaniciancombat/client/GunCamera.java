@@ -190,19 +190,29 @@ public final class GunCamera {
 			return;
 		}
 		int currentDecoupledReason = ShoulderCouplingState.decoupledReason(client);
+		GunClientState.Entry entry = GunClientState.get(p.getId());
+		boolean rolling = entry != null && (entry.state == TkGun.State.ROLL
+				|| entry.state == TkGun.State.ROLL_TO_IDLE);
+		if (rolling) {
+			releaseAimUntilKeyUp = false;
+		}
 		if (!client.options.keyUse.isDown()) {
 			releaseAimUntilKeyUp = false;
 			aimDecoupledReason = 0;
 		} else if (wasAiming && currentDecoupledReason != 0
 				&& currentDecoupledReason != aimDecoupledReason) {
-			releaseAimUntilKeyUp = true;
-			if (p.isUsingItem() && p.getUsedItemHand() == net.minecraft.world.InteractionHand.MAIN_HAND
-					&& p.getUseItem().is(com.mechaniciancombat.TkGunServer.BOWGUN)) {
-				p.releaseUsingItem();
+			if (AimTransitionRules.requiresRelease(aimDecoupledReason, currentDecoupledReason, rolling)) {
+				releaseAimUntilKeyUp = true;
+				if (p.isUsingItem() && p.getUsedItemHand() == net.minecraft.world.InteractionHand.MAIN_HAND
+						&& p.getUseItem().is(com.mechaniciancombat.TkGunServer.BOWGUN)) {
+					p.releaseUsingItem();
+				}
+			} else {
+				aimDecoupledReason = currentDecoupledReason;
 			}
 		}
 		ticks++;
-		// 翻滚 / 滑铲及其结束后的 1 秒：右键是**完全屏蔽**，不只是不画准星。
+		// 翻滚动作、滑铲及滑铲后锁定期间屏蔽右键。
 		// 原版在 `useKey` 仍按着时会继续维持 `isUsingItem()`（进而触发本模组的举枪减速），
 		// 所以这里主动停掉已经开始的物品使用；`BowgunItem#use` 同时会在入口拒绝新的右键。
 		if (!aimAllowed(client)) {
@@ -704,8 +714,7 @@ public final class GunCamera {
 	/**
 	 * **现在允不允许右键瞄准**（不看按键有没有按着）。
 	 *
-	 * <p>用户 2026-10-17："撤销原版疾跑不允许瞄准的设定"（疾跑中瞄准只终止疾跑）；翻滚后的**加速冲刺**
-	 * 窗口仍然不允许——各处要"屏蔽右键输入"时统一用它，别各写一份条件。
+	 * <p>翻滚收势和翻滚后的加速期间允许瞄准；动作和滑铲锁仍由客户端状态控制。
 	 */
 	public static boolean aimAllowed(Minecraft client) {
 		return active(client) && !releaseAimUntilKeyUp

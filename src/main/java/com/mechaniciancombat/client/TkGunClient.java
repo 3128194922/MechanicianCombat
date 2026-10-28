@@ -24,7 +24,7 @@ import java.util.UUID;
 
 /**
  * 客户端：
- *  1. 玩家身体和持枪动画由 GeckoLib rig 渲染；
+ *  1. 原版 PlayerRenderer 绘制玩家身体，PlayerAnimator 应用持枪和战术动作；GeckoLib 驱动枪械动画；
  *  2. 处理瞄准、开火、专注、装填和闪避输入；
  *  3. 左键"攻击" -> 给服务端发开火请求。
  */
@@ -192,7 +192,7 @@ public final class TkGunClient {
 
 	private static final Map<Integer, Move> MOVES = new HashMap<>();
 	/** Players currently venting heat; true marks that the initial burst was emitted. */
-	private static final Map<Integer, Boolean> VENTING_PLAYERS = new HashMap<>();
+	private static final VentEmissionTracker VENTING_PLAYERS = new VentEmissionTracker();
 	private static final ResourceLocation GUN_STEP_MODIFIER = TkGun.id("gun_step_height");
 	private static boolean heldGunLastTick;
 	/** 停下之后还当作"在动"几 tick，免得临界速度来回抖。 */
@@ -426,15 +426,7 @@ public final class TkGunClient {
 		}
 	}
 	/** 手持弩炮强制**越肩视角**：记住进枪之前是什么视角，枪一离手就还原。 */
-	private static boolean thirdPersonForced = false;
-	/**
-	 * 进枪之前玩家自己是什么视角（枪离手时还原 —— 别硬改成第一人称：
-	 * 这个整合包装了 ShoulderSurfing，玩家的默认视角是它自己的 `SHOULDER_SURFING`，
-	 * 强行还原成第一人称等于把人家设置改了）。
-	 */
-	private static CameraType perspectiveBeforeGun;
-	/** ShoulderSurfing 在不在（不在就退回原版第三人称；装了就交给它）。 */
-	private static boolean surfAvailable;
+	private static final GunPerspectiveGuard<CameraType> PERSPECTIVE_GUARD = new GunPerspectiveGuard<>();
 	/**
 	 * 本地玩家枪口的世界坐标 + 枪管朝向 —— **渲染时从模型里量出来的**（枪口那根骨，
 	 * 见 {@code BowgunRigRenderer.MUZZLE_BONE}）。开火时随 {@link GunFirePayload} 发给服务端，
@@ -505,21 +497,14 @@ public final class TkGunClient {
 			boolean venting = TkGun.holdingGun(player) && state != null
 					&& (state.state == TkGun.State.OVERHEAT
 					|| state.heat >= TkGun.HEAT_MAX - 0.01F);
-			boolean wasVenting = Boolean.TRUE.equals(
-					VENTING_PLAYERS.put(player.getId(), venting));
-			if (!venting) {
-				VENTING_PLAYERS.remove(player.getId());
+			boolean withinRange = player.distanceToSqr(client.player) <= 64.0D * 64.0D;
+			net.minecraft.world.phys.Vec3 locator = venting && withinRange
+					? com.mechaniciancombat.client.rig.BowgunRigRenderer.locatorPosition(player.getId()) : null;
+			VentEmissionTracker.Event emission = VENTING_PLAYERS.update(player.getId(), venting, locator != null);
+			if (emission == VentEmissionTracker.Event.OFF || emission == VentEmissionTracker.Event.WAIT) {
 				continue;
 			}
-			if (player.distanceToSqr(client.player) > 64.0D * 64.0D) {
-				continue;
-			}
-			net.minecraft.world.phys.Vec3 locator =
-					com.mechaniciancombat.client.rig.BowgunRigRenderer.locatorPosition(player.getId());
-			if (locator == null) {
-				continue;
-			}
-			if (!wasVenting) {
+			if (emission == VentEmissionTracker.Event.START) {
 				for (int i = 0; i < 6; i++) {
 					client.level.addParticle(TkGunParticles.HEAT_VENT,
 							locator.x, locator.y, locator.z,
@@ -537,8 +522,7 @@ public final class TkGunClient {
 						0.0D, 0.015D, 0.0D);
 			}
 		}
-		VENTING_PLAYERS.entrySet().removeIf(entry ->
-				client.level.getEntity(entry.getKey()) == null);
+		VENTING_PLAYERS.removeIf(id -> client.level.getEntity(id) == null);
 	}
 
 	/**
@@ -577,7 +561,7 @@ public final class TkGunClient {
 	 * 核对 **GeckoLib rig 那份动画文件**（`animations/entity/bowgun_rig.animation.json`）：
 	 * 它才是驱动玩家模型/枪/枪口焰的那一份。把里面的动画名全打出来 ——
 	 * 机械师新素材应该是 15 段（idle / Focus_ready / Focus_shooting[2..7] / Overheat / run /
-	 * roll / sliding / sliding_ready / Focus_over_shooting）。
+	 * roll / sliding / sliding_fast_ready / Focus_over_shooting）。
 	 */
 	private static void rigAnimations() {
 		ResourceLocation id = new ResourceLocation(TkGun.MOD_ID, "animations/entity/bowgun_rig.animation.json");
@@ -729,6 +713,7 @@ public final class TkGunClient {
 
 	private static void setupClient() {
 		TkGunMolang.install();
+		com.mechaniciancombat.client.rig.BowgunPlayerAnimatorPose.register();
 		if (net.minecraftforge.fml.ModList.get().isLoaded("shouldersurfing")) ShoulderSurfBridge.registerGunCameraBehavior();
 		TkGun.LOGGER.info("[tkgun] 蹲射/专注与下蹲共用原版 sneak 键");
 		ClientNetwork.registerGlobalReceiver(GunStatePayload.ID,
@@ -760,6 +745,7 @@ public final class TkGunClient {
 					backpack, com.mechaniciancombat.client.CombatBackpackCurioRenderer::new);
 		}
 		net.minecraftforge.common.MinecraftForge.EVENT_BUS.addListener(TkGunClient::onClientTick);
+		net.minecraftforge.common.MinecraftForge.EVENT_BUS.addListener(net.minecraftforge.eventbus.api.EventPriority.LOWEST, TkGunClient::onRenderTick);
 		TkGun.LOGGER.info("[tkgun] 客户端就绪: GeckoLib 玩家动画 rig");
 	}
 
@@ -768,6 +754,13 @@ public final class TkGunClient {
 			tick(Minecraft.getInstance());
 		}
 	}
+	/** Restore the held-gun view before each frame after other mods change it. */
+	private static void onRenderTick(net.minecraftforge.event.TickEvent.RenderTickEvent event) {
+		if (event.phase != net.minecraftforge.event.TickEvent.Phase.START) return;
+		Minecraft client = Minecraft.getInstance();
+		if (client.level != null && client.player != null) forceOverShoulder(client);
+	}
+
 	private static void tick(Minecraft client) {
 		GunClientState.tickAll();
 		CombatBackpackClientState.tick(client);
@@ -779,10 +772,12 @@ public final class TkGunClient {
 		}
 		GunDebugHarness.tick(client);
 		if (client.level == null || client.player == null) {
-			thirdPersonForced = false;
+			PERSPECTIVE_GUARD.reset();
 			heldGunLastTick = false;
 			FallbackShoulderCamera.leave(client);
 			GunCamera.resetVanillaState();
+			// Player entity IDs can be reused after reconnecting; discard the previous world's sampled PAL poses.
+			com.mechaniciancombat.client.rig.BowgunPlayerAnimatorPose.clear();
 			MOVES.clear();
 			VENTING_PLAYERS.clear();
 			backpackActionDown = false;
@@ -820,7 +815,7 @@ public final class TkGunClient {
 			focusKeyDown = focusDown;
 			if (focusDown && TkGun.holdingGun(client.player)) {
 				// **翻滚中按 Z = 快速蹲射**（用户 2026-10-17）：不再屏蔽 —— 服务端会打断翻滚动画、
-				// 按快档（`fast_ready`）直接进架枪，见 `TkGunServer#startFocus` 里的 ROLL 分支。
+				// 按快档（`sliding_fast_ready`）直接进架枪，见 `TkGunServer#startFocus` 里的快速状态分支。
 				// 翻滚中按 Z 一定是"进入快速蹲射"意图：此时客户端镜像可能还残留着翻滚前的
 				// `focus=true`（状态包尚未到达），若按普通 toggle 判断会算成"退出"，本地就不会
 				// 清冲刺/校正朝向。服务端以 `deployed` 为准，这里只是把表现提前对齐。
@@ -981,36 +976,39 @@ public final class TkGunClient {
 		backpackActionDown = backpackActionRaw;
 	}
 
-	private static void forceOverShoulder(Minecraft client) {
-		if (TkGun.holdingGun(client.player)) {
-			if (!thirdPersonForced) {
-				thirdPersonForced = true;
-				perspectiveBeforeGun = client.options.getCameraType();
-				// 2026-10-17 用户："撤销所有关于视角修改的内容，我将重新使用 ShoulderSurfing" ——
-				// 回到原来的分工：**视角交给 ShoulderSurfing**（它接管时用它的 `SHOULDER_SURFING`），
-				// 没装/没接管才退回原版第三人称。本模组不再自带越肩相机。
-				surfAvailable = applyShoulderSurf(true);
-				if (!surfAvailable) {
-					client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
-				}
-				TkGun.LOGGER.info("[tkgun] 手持弩炮 -> 越肩视角（ShoulderSurfing {}）",
-						surfAvailable ? "接管" : "没装，退回原版第三人称");
-			}
-		} else if (thirdPersonForced) {
-			thirdPersonForced = false;
-			FallbackShoulderCamera.leave(client);
-			applyShoulderSurf(false);
-			// Always restore the vanilla perspective that was active before the gun.
-			// ShoulderSurfing can otherwise leave its decoupled state behind after
-			// switching items and re-entering first person.
-			if (perspectiveBeforeGun != null
-					&& client.options.getCameraType() != perspectiveBeforeGun) {
-				client.options.setCameraType(perspectiveBeforeGun);
-			}
-			GunCamera.resetVanillaState();
-			surfAvailable = false;
-			perspectiveBeforeGun = null;
+	private static final GunPerspectiveGuard.Camera<CameraType> GUN_CAMERA =
+			new GunPerspectiveGuard.Camera<>() {
+		@Override public CameraType current() { return Minecraft.getInstance().options.getCameraType(); }
+		@Override public boolean enterShoulder() { return applyShoulderSurf(true); }
+		@Override public boolean isShoulder() { return shoulderViewActive(); }
+		@Override public boolean ensureShoulder() { return ensureShoulderView(); }
+		@Override public boolean isBack() { return current() == CameraType.THIRD_PERSON_BACK; }
+		@Override public void useBack() { Minecraft.getInstance().options.setCameraType(CameraType.THIRD_PERSON_BACK); }
+		@Override public void leaveShoulder() { applyShoulderSurf(false); }
+		@Override public void restore(CameraType previous) {
+			Minecraft client = Minecraft.getInstance();
+			if (client.options.getCameraType() != previous) client.options.setCameraType(previous);
 		}
+		@Override public void onRelease() {
+			FallbackShoulderCamera.leave(Minecraft.getInstance());
+			GunCamera.resetVanillaState();
+		}
+	};
+
+	private static void forceOverShoulder(Minecraft client) {
+		PERSPECTIVE_GUARD.update(TkGun.holdingGun(client.player), GUN_CAMERA);
+	}
+
+	private static boolean shoulderViewActive() {
+		if (!net.minecraftforge.fml.ModList.get().isLoaded("shouldersurfing")) return false;
+		try { return ShoulderSurfBridge.isOverShoulderActive(); }
+		catch (Throwable ignored) { return false; }
+	}
+
+	private static boolean ensureShoulderView() {
+		if (!net.minecraftforge.fml.ModList.get().isLoaded("shouldersurfing")) return false;
+		try { return ShoulderSurfBridge.ensureOverShoulder(); }
+		catch (Throwable ignored) { return false; }
 	}
 
 	/**

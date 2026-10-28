@@ -22,6 +22,37 @@ import java.util.UUID;
 @PrefixGameTestTemplate(false)
 public final class R396ContentGameTests {
     @GameTest(template = "empty", timeoutTicks = 20)
+    public static void rollRecoveryAllowsAim(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var player = net.minecraftforge.common.util.FakePlayerFactory.get(level,
+                new com.mojang.authlib.GameProfile(UUID.fromString("a9877273-10c5-4f9d-b9a8-cea845a4ba43"), "roll_aim_test"));
+        var gun = new net.minecraft.world.item.ItemStack(ModRegistries.BOWGUN.get());
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, gun);
+        var state = com.mechaniciancombat.TkGunServer.state(player);
+        long now = level.getGameTime();
+        state.dashUntil = now + 60;
+        state.state = com.mechaniciancombat.TkGun.State.ROLL;
+        ModRegistries.BOWGUN.get().use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(!player.isUsingItem(), "aim must be blocked during the actual roll");
+        state.state = com.mechaniciancombat.TkGun.State.ROLL_TO_IDLE;
+        ModRegistries.BOWGUN.get().use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(player.isUsingItem(), "aim must be available in roll recovery while dash is active");
+        player.stopUsingItem();
+        state.state = com.mechaniciancombat.TkGun.State.IDLE;
+        ModRegistries.BOWGUN.get().use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(player.isUsingItem(), "aim must stay available after roll recovery during dash");
+        player.stopUsingItem();
+        state.state = com.mechaniciancombat.TkGun.State.SLIDE;
+        ModRegistries.BOWGUN.get().use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(!player.isUsingItem(), "slide must still block aiming");
+        state.state = com.mechaniciancombat.TkGun.State.IDLE;
+        state.aimLockUntil = now + 20;
+        ModRegistries.BOWGUN.get().use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(!player.isUsingItem(), "the existing slide recovery aim lock must remain");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 20)
     public static void rollRecoveryAllowsFire(GameTestHelper helper) {
         var level = helper.getLevel();
         var player = net.minecraftforge.common.util.FakePlayerFactory.get(level,

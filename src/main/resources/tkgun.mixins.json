@@ -13,6 +13,7 @@
   ],
   "client": [
     "PlayerEntityRendererRigMixin",
+    "BowgunVanillaItemLayerMixin",
     "GameRendererZoomMixin",
     "FocusInputLockMixin",
     "FocusMovementLockMixin",

@@ -97,7 +97,7 @@ MechanicianCombat/
 | --- | --- | --- |
 | Fabric API / Loader | 入口、注册、事件、网络和界面普遍使用 | 用 Forge 原生机制重写，不引入 Fabric 兼容层 |
 | GeckoLib 4.8.2 | 多处 GeoItem、GeoRenderer、骨架动画 | 使用已核查的 Forge 1.20.1 / 4.8.4，适配该版本 API |
-| Player Animation Lib | 代码仍有 `dev.kosmx.playerAnim` 导入；SOURCES 称“遗留”；交接记 2.0.4，SOURCES 记 2.0.1 | 追踪实际执行路径，不能仅凭注释删除；保留所需版本或经确认后移除遗留接入 |
+| Player Animation Lib | 原项目使用的前置；目标清单锁定 Forge `1.0.2-rc1+1.20` | 作为客户端前置驱动原版玩家模型；持枪身体姿势取自 GeckoLib 当前骨骼状态 |
 | Accessories / Curios API | 原背包直接继承 Accessories API；用户于 2026-10-26 明确批准替换为 Curios | 使用官方 Forge `5.11.1+1.20.1`；实现 Curios `ICurioItem`、`back` 槽、装备查询和 `ICurioRenderer`，验证完成前不标记运行通过 |
 | Shoulder Surfing Reloaded | 清单为必需，桥接代码有回退和反射 | 优先使用对应 Forge 版本；核对公开扩展 API，隔离到客户端 |
 | Combat Roll | 清单为必需，服务端滚动事件与客户端输入 Mixin | 核对 Forge 版本事件及动作时序，保持翻滚/滑铲循环 |
@@ -105,7 +105,7 @@ MechanicianCombat/
 | AzureLib | SOURCES 列为源 Combat Roll 依赖 | 仅在目标版本确实需要且用户批准时接入 |
 | CustomSkinLoader | 源操作说明称可选 | 不作为新增必要前置；有条件时列兼容检查 |
 
-已采用 **A：保真移植**。允许使用参考项目已经用到的前置的 Forge 1.20.1 对应版本；用户另于 2026-10-26 明确批准用 Curios API 替换 Accessories，不改变背包玩法。当前前置及其固定验证文件见 `DEPENDENCIES.json`。除此授权外，新增替代运行库仍需确认。锁记录的 `declaredDependencies` 来自发布 API，不等于完整的 JAR 必需依赖列表，以评估报告第 4 节的元数据核查结果补充判断。
+已采用 **A：保真移植**。允许使用参考项目已经用到的前置的 Forge 1.20.1 对应版本；用户另于 2026-10-26 明确批准用 Curios API 替换 Accessories，不改变背包玩法。PlayerAnimator 是原项目已有前置，现作为客户端运行前置。当前前置及其固定验证文件见 `DEPENDENCIES.json`。除此授权外，新增替代运行库仍需确认。锁记录的 `declaredDependencies` 来自发布 API，不等于完整的 JAR 必需依赖列表，以评估报告第 4 节的元数据核查结果补充判断。
 
 原 Accessories 对照测试及其 Mixin 阻塞作为历史证据保留。替换决定已由用户明确批准；现阶段继续完成 Curios `back` 槽数据加载、真实装备查询、客户端渲染/UI、服务端背包发射及多人同步验收，不因编译通过而宣称功能完成。
 

@@ -8,7 +8,7 @@ import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import com.mojang.blaze3d.vertex.PoseStack;
 
 /**
- * 只在「手持破垒重炮」时接管玩家身体的渲染（交给 GeckoLib 的 rig 模型 + 作者原始动画）。
+ * 只在「手持破垒重炮」时额外渲染 GeckoLib 枪械 rig；玩家身体仍交给原版 PlayerRenderer。
  *
  * <p>渲染器实例要 {@code EntityRendererFactory.Context}，从原版 {@code PlayerEntityRenderer}
  * 的构造里拿到（见 {@code PlayerEntityRendererRigMixin}），之后复用同一个实例。
@@ -21,19 +21,18 @@ public final class BowgunRigClient {
 		context = ctx;
 	}
 
-	/** rig 渲染器实例（第一次拿到枪时建）—— 自检/诊断要用。 */
+	/** rig 渲染器实例（第一次拿到枪时建）。 */
 	public static BowgunRigRenderer getRenderer() {
 		return renderer;
 	}
 
 	/**
-	 * 让 GeckoLib 的 rig 把整个玩家（身体 + 枪 + 枪口焰…）画出来。
+	 * 让 GeckoLib 评估本帧枪械动画并绘制枪械与特效。
 	 *
-	 * <p>⚠️ **原版那条渲染必须整条取消**（2026-10-14 用户定调的原状）："隐藏原版玩家模型，
-	 * 直接显示 GeckoLib 模型"。这套动作里身体区块有大量位移/缩放，拿原版模型近似 = 肢体变形，不行。
-	 * 盔甲由 {@link BowgunArmorLayer} 在 GeckoLib 身体骨骼上单独重画，不依赖原版模型近似姿势。
+	 * <p>GeckoLib 仍按作者骨架渲染枪械。身体姿势由 {@link BowgunPlayerAnimatorPose} 送到原版玩家模型，
+	 * 这样原版皮肤、盔甲与其它玩家渲染层继续工作。
 	 *
-	 * @return true = 手里有破垒重炮，rig 已经画完了（调用方取消原版渲染）
+	 * @return 始终返回 false，让原版 PlayerRenderer 在 GeckoLib 枪械后继续渲染身体与特征层
 	 */
 	public static boolean renderIfHolding(AbstractClientPlayer player, float yaw, float tickDelta,
 										  PoseStack matrices, MultiBufferSource consumers, int light) {
@@ -58,7 +57,7 @@ public final class BowgunRigClient {
 		// 虚调用照样会派发到 GeckoLib 的覆写上。
 		EntityRenderer<AbstractClientPlayer> asVanillaRenderer = renderer;
 		asVanillaRenderer.render(player, yaw, tickDelta, matrices, consumers, light);
-		return true;
+		return false;
 	}
 
 	private BowgunRigClient() {

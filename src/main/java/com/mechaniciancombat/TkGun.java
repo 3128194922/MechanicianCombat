@@ -37,8 +37,8 @@ public final class TkGun {
 		INSPECT(5),     // 仅调试命令使用的检视动画
 		SLIDE(6),       // 滑铲            = sliding
 		ROLL(7),        // 翻滚            = roll（资源包里 combat_roll 那段也换成了这套素材）
-		SLIDE_READY(8), // 滑铲收势        = sliding_ready，结束后回 IDLE/重新举枪
-		AIM_FAST(9),    // 快速举枪        = fast_ready
+		SLIDE_READY(8), // 滑铲收势        = sliding_fast_ready，结束后回 IDLE/重新举枪
+		AIM_FAST(9),    // 快速举枪        = sliding_fast_ready
 		AIM_SLIDE(10),  // 滑铲抢枪        = sliding_fast_ready
 		/** 打完一枪且仍处于专注时，保持该射击动画的尾帧，不重播举枪动画。 */
 		AIM_HOLD(11),
@@ -134,12 +134,12 @@ public final class TkGun {
 	/**
 	 * 部署（架枪）时长：普通右键慢、滑铲/蹲着右键快、滑铲里抢架枪最快。见 {@link TkGunServer#startAim}。
 	 *
-	 * <p>⚠️ 2026-10-14 换新素材后**快档改用作者新做的 `fast_ready`**（0.667 秒，专门是"快速起枪"）——
-	 * 老做法是拿 `Focus_ready` 按 2x/3x 倍速播，那是老素材没有 fast_ready 时的凑合。
+	 * <p>快档使用作者的 `sliding_fast_ready`（0.667 秒）；翻滚后使用独立的
+	 * `rolling_fast_ready`。老注释中的 `fast_ready` 已不在当前动画资源中。
 	 */
 	public static final int AIM_TICKS_NORMAL = 24;    // 1.2s（Focus_ready 0.83 倍速）
-	public static final int AIM_TICKS_FAST = 14;      // 0.7s（fast_ready 1 倍速）
-	public static final int AIM_TICKS_SLIDE = 7;      // 0.35s（fast_ready 约 2 倍速）
+	public static final int AIM_TICKS_FAST = 14;      // 0.7s（sliding_fast_ready 1 倍速）
+	public static final int AIM_TICKS_SLIDE = 7;      // 0.35s（sliding_fast_ready 约 2 倍速）
 	/**
 	 * **主动装填**：播放作者的 `reload` 动画。空闲弹匣不会自动装填。
 	 *

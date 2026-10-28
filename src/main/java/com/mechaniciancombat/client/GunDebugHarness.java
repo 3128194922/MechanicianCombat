@@ -3,6 +3,7 @@ package com.mechaniciancombat.client;
 import com.mechaniciancombat.TkGun;
 import com.mechaniciancombat.client.ClientNetwork;
 import com.mechaniciancombat.net.GunReloadPayload;
+import com.mechaniciancombat.net.GunRollPayload;
 import com.mechaniciancombat.screen.BackpackModificationTableScreenHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.events.GuiEventListener;
@@ -24,7 +25,7 @@ import java.util.Set;
 /**
  * 客户端自动演示 + 截图（只有 -Dtkgun.demo=1 时才跑）。
  *
- * 用途：验证第三人称持枪动作是否真的播出来（原版键位是真的按，所以服务端链路也一起验了）。
+ * 用途：验证第三人称持枪动作是否真的播出来；闪避演示发送正式 C2S 请求，避免 GLFW 物理输入无法脚本化。
  * 每进入一个新动画就截一张 assistant 目录下的 PNG，日志里也会打 STEP。
  */
 public final class GunDebugHarness {
@@ -40,6 +41,8 @@ public final class GunDebugHarness {
 	private static final boolean UI_TRANSFER_DEMO = truthy(System.getProperty("tkgun.demoUiTransfer"));
 	/** Optional end-to-end backpack table UI acceptance path for isolated clients. */
 	private static final boolean UI_TABLE_DEMO = truthy(System.getProperty("tkgun.demoTableUi"));
+	/** Isolated singleplayer visual scenario for an equipped auto-launcher backpack. */
+	private static final boolean BACKPACK_DEMO = truthy(System.getProperty("tkgun.demoBackpack"));
 	private static final boolean LOYALTY_DEMO = truthy(System.getProperty("tkgun.loyaltyDemo"));
 	private static final boolean WIND_DEMO = truthy(System.getProperty("tkgun.windDemo"));
 
@@ -80,9 +83,6 @@ public final class GunDebugHarness {
 	private static String lastAnim = "";
 	private static int shotDelay = -1;
 	private static String shotName = "";
-	/** 翻滚键按下去之后要记得松手，否则 combat_roll 会每冷却好一次就翻一次（2026-10-12 踩过）。 */
-	private static KeyMapping heldRollKey;
-	private static int releaseRollAt = -1;
 
 	public static void tick(Minecraft client) {
 		if (!ENABLED && !LOYALTY_DEMO && !WIND_DEMO && !remoteEnabled) {
@@ -139,6 +139,49 @@ public final class GunDebugHarness {
 			}
 		}
 		tick++;
+		if (BACKPACK_DEMO && tick == 1 && client.getSingleplayerServer() != null) {
+			var server = client.getSingleplayerServer();
+			var playerId = client.player.getUUID();
+			server.execute(() -> {
+				var player = server.getPlayerList().getPlayer(playerId);
+				if (player == null) return;
+				player.serverLevel().setDayTime(6000L);
+				var stack = new net.minecraft.world.item.ItemStack(
+						com.mechaniciancombat.registry.ModRegistries.COMBAT_BACKPACK.get());
+				com.mechaniciancombat.item.BackpackUpgradeData.installCore(stack);
+				com.mechaniciancombat.item.BackpackUpgradeData.setLauncherType(stack,
+						com.mechaniciancombat.item.BackpackUpgradeData.LauncherType.AUTO);
+				top.theillusivec4.curios.api.CuriosApi.getCuriosInventory(player).resolve()
+						.ifPresent(curios -> curios.setEquippedCurio("back", 0, stack));
+				TkGun.LOGGER.info("[tkgun-backpack-demo] equipped auto-launcher backpack");
+			});
+		}
+		if (BACKPACK_DEMO && tick == 80) {
+			client.player.setXRot(5.0F);
+			shot(client, "tkgun_backpack_ready.png");
+		}
+		if (BACKPACK_DEMO && tick == 85 && client.getSingleplayerServer() != null) {
+			var server = client.getSingleplayerServer();
+			var playerId = client.player.getUUID();
+			server.execute(() -> {
+				var player = server.getPlayerList().getPlayer(playerId);
+				if (player != null) player.setItemInHand(net.minecraft.world.InteractionHand.OFF_HAND,
+						new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.FIREWORK_ROCKET, 64));
+			});
+		}
+		if (BACKPACK_DEMO && (tick == 100 || tick == 160)) {
+			CombatBackpackClientState.trigger(client.player);
+			TkGun.LOGGER.info("[tkgun-backpack-demo] toggle tick={} installed={}", tick,
+					com.mechaniciancombat.item.BackpackUpgradeData.canUseLauncher(
+							com.mechaniciancombat.item.CombatBackpackItem.equippedStack(client.player)));
+		}
+		if (BACKPACK_DEMO && (tick == 110 || tick == 125 || tick == 170)) {
+			TkGun.LOGGER.info("[tkgun-backpack-demo] tick={} status={} animation={} charges={}", tick,
+					CombatBackpackClientState.statusPhase(client.player.getId()),
+					CombatBackpackClientState.phase(client.player.getId()),
+					CombatBackpackClientState.charges(client.player.getId()));
+			shot(client, "tkgun_backpack_" + tick + ".png");
+		}
 		if (tick == 5) {
 			client.player.getInventory().selected = 0;
 			client.options.keyHotbarSlots[0].setDown(true);   // 让**服务端**也知道切到了槽 0
@@ -396,16 +439,15 @@ public final class GunDebugHarness {
 		}
 		// 连点（同一段里左键连按三下）= 验证"排队不覆盖"，已经并进上面的 attack 脚本
 		if (tick == 340) {
-			pressCombatRoll(client);
+			requestDemoDodge(client, "翻滚");
 		}
-		if (heldRollKey != null && tick >= releaseRollAt) {
-			heldRollKey.setDown(false);
-			heldRollKey = null;
+		if (tick == 375) {
+			requestDemoDodge(client, "翻滚后的滑铲");
 		}
 
 		// 观察动画切换 -> 截图。
-		// ⚠️ 用 **GeckoLib rig 的状态**（GunClientState）而不是 playeranimator 那层的名字：
-		//    玩家身体现在由 rig 画（见 BowgunRig），playeranimator 那份只是遗留。
+		// 用 **GunClientState 的动作状态**选择诊断动画标签；GeckoLib 评估枪械动画，
+		// PlayerAnimator 将同帧身体姿势应用到原版 PlayerModel。
 		String anim = GunClientState.animationName(client.player.getId());
 		if (anim == null) {
 			anim = TkGunClient.currentAnimation(client.player.getUUID());
@@ -773,10 +815,6 @@ public final class GunDebugHarness {
 		client.options.keyShift.setDown(false);
 		client.options.keyAttack.setDown(false);
 		releaseHudSkillKeys(client);
-		if (heldRollKey != null) {
-			heldRollKey.setDown(false);
-			heldRollKey = null;
-		}
 	}
 
 	/** 主手是不是布景清理棒（按物品 id 判，不引 tkm 的类）。 */
@@ -967,28 +1005,14 @@ public final class GunDebugHarness {
 		return false;
 	}
 
-	private static void pressCombatRoll(Minecraft client) {
-		// 先找 combat_roll 自己的键位（bettercombat 的 feint 之类也带 "combat"，别点错）
-		for (KeyMapping key : client.options.keyMappings) {
-			String t = key.getName();
-			if (t.contains("combat_roll") || t.contains("combatroll") || t.contains("combat.roll")) {
-				key.setDown(true);
-				heldRollKey = key;
-				releaseRollAt = tick + 6;
-				TkGun.LOGGER.info("[tkgun-demo] 按下翻滚键 {}", t);
-				return;
-			}
+	private static void requestDemoDodge(Minecraft client, String label) {
+		// 生产输入读取 GLFW 物理键状态，KeyMapping#setDown 无法模拟该输入。
+		// 演示改发同一个 C2S 请求，走服务端正式闪避状态机与动画广播；本地预测只用于首帧。
+		ClientNetwork.send(new GunRollPayload());
+		if ("翻滚".equals(label)) {
+			GunClientState.beginLocalRoll(client.player.getId());
 		}
-		for (KeyMapping key : client.options.keyMappings) {
-			if (key.getName().contains("combat")) {
-				key.setDown(true);
-				heldRollKey = key;
-				releaseRollAt = tick + 6;
-				TkGun.LOGGER.info("[tkgun-demo] 按下翻滚键 {}", key.getName());
-				return;
-			}
-		}
-		TkGun.LOGGER.warn("[tkgun-demo] 没找到 combat_roll 的键位");
+		TkGun.LOGGER.info("[tkgun-demo] 通过正式翻滚请求触发：{}", label);
 	}
 
 	/** 测试世界带"实验性世界设置"确认框，自动点第一个按钮（= 继续加载）。 */

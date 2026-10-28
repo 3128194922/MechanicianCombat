@@ -24,12 +24,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 用 GeckoLib 播 711 那套**作者原始**动画的玩家 rig（不再走 playeranimator）。
+	 * GeckoLib 动画驱动枪械骨架；身体姿势桥接到 PlayerAnimator 的原版玩家模型。
  *
- * <p>为什么换：playeranimator 只能做旋转 + bend，**不支持骨骼位移/缩放**，而作者这套动画
- * 大量依赖 position（下蹲 -8、架枪的位移）和 scale（枪口焰/速度线的显隐）——
- * 表现就是用户说的"玩家高度不变化、没有坐下架枪、关节不对"。GeckoLib 这些全支持，
- * 而且是拿 bbmodel 里作者原封不动的动画（骨名 = geo 骨名），不用做任何重定向。
+	 * <p>枪械骨架仍按 GeckoLib 作者原始动画驱动；身体骨骼的位移与旋转由
+	 * {@link BowgunPlayerAnimatorPose} 传给原版玩家模型。GeckoLib 继续负责枪口焰、弹壳、零件缩放和定位器。
  *
  * <p>动画名与 {@code assets/tkgun/animations/entity/bowgun_rig.animation.json} 里的键一一对应。
  */
@@ -65,9 +63,7 @@ public final class BowgunRig implements GeoReplacedEntity {
 				.setParticleKeyframeHandler(BowgunRig::onParticleKeyframe));
 		// **第二条控制器：只做"移动开火"的上半身**（作者的 `stand_shooting` 里**没有**腿和躯干的通道，
 		// 就是给"腿在走路、上半身在开火"这种叠层用的 —— 2026-10-14 用户点名要的"移动开火"）。
-		// GeckoLib 4.8 的多控制器语义：所有控制器都往同一批骨骼上写，后注册的覆盖先注册的；
-		// 最后统一把"这一帧没有任何动画碰过的骨骼"拉回绑定姿势（见 AnimationProcessor#tickAnimation）。
-		// 所以上层只写上半身、下层照旧写全身，合并出来的就是"边走边打"。
+		// GeckoLib 4.8 的多控制器语义：下层给全身移动，上层只写上半身枪械动作，合并后保留移动射击。
 		registrar.add(new AnimationController<>(this, "upper", 0, this::pickUpper)
 				// 上半身动画是从完整动画派生的，仍带有原动画的声音/timeline/粒子标记。
 				// 这些事件由主 rig 控制器或服务端处理；这里显式吸收，避免重复播放和日志刷屏。
@@ -173,7 +169,7 @@ public final class BowgunRig implements GeoReplacedEntity {
 
 	/** **专注那几段**（"照模型引用的音频放"的动画名，见 {@link #reportFocusSoundKeyframe}）。 */
 	private static final Set<String> FOCUS_SOUND_ANIMS = Set.of(
-			"Focus_ready", "fast_ready", "Focus_over",
+			"Focus_ready", "sliding_fast_ready", "rolling_fast_ready", "Focus_over",
 			"Focus_shooting", "Focus_shooting1", "Focus_shooting2", "Focus_shooting3", "Focus_shooting4",
 			"Focus_shooting5", "Focus_shooting6", "Focus_shooting7",
 			"Focus_shooting_extra",
@@ -188,10 +184,10 @@ public final class BowgunRig implements GeoReplacedEntity {
 	 * **时间就是作者埋的那个时间**，动画倍速（进专注 0.83x / 快档 2x / 滑铲抢枪 3x）会自动跟着缩放，
 	 * 不用在 Java 里手写一堆偏移。
 	 *
-	 * <p>模型引用的全部（`Focus_*` / `Overheat`）：
+	 * <p>模型引用的音效动画（`Focus_*` / `Overheat` 与快举枪动作）：
 	 * <pre>
 	 * Focus_ready            0.25s   栓声（bolt）
-	 * fast_ready             0.0833s 栓声
+	 * sliding_fast_ready     0.0833s 栓声；rolling_fast_ready 0.0417s 栓声
 	 * Focus_over             0.25s 换弹 + 0.375s 换弹2      ← 以前这里**一声都没有**
 	 * Focus_shooting[2..7]   0.0417s 开火关键帧（**跳过**：服务端在出伤帧统一放枪击3）
 	 * Focus_shooting7        0.1667s 空弹仓（专注弹匣最后一发的卸匣动作）
@@ -219,10 +215,11 @@ public final class BowgunRig implements GeoReplacedEntity {
 		if (!TkGun.KEYFRAME_SOUNDS.containsKey(key)) {
 			return false;
 		}
-		// ⚠️ `bolt` 在 `Focus_ready` / `fast_ready` 里**由服务端排**（`TkGunServer` 的 `aimSoundAt`，
-		//    时间点就是作者埋在 0.25s / 0.0833s 的那一拍）—— 这里跳过，不然旁观者会听到两声。
+		// `bolt` 由服务端负责 Focus_ready、滑铲/翻滚快举枪以及滑铲收势；这些动画的
+		// 关键帧只用于对时，客户端跳过上报，避免服务端排程与动画关键帧各放一次。
 		if ("bolt".equals(key) && ("Focus_ready".equals(currentAnimationName)
-				|| "fast_ready".equals(currentAnimationName))) {
+				|| "sliding_fast_ready".equals(currentAnimationName)
+				|| "rolling_fast_ready".equals(currentAnimationName))) {
 			return false;
 		}
 		// **报给服务端去放**（用户 2026-10-17："将音频文件加入 mod 中使旁观者也能听见"）：
@@ -238,6 +235,14 @@ public final class BowgunRig implements GeoReplacedEntity {
 	/** 当前 rig 控制器在播哪一段（渲染器判"这段要不要跟随视角"要用）。 */
 	public static String currentAnimation() {
 		return currentAnimationName;
+	}
+
+	/** Animation layers affecting the current player's body in this GeckoLib render pass. */
+	public static java.util.Set<String> currentPlayerPoseAnimations() {
+		java.util.Set<String> names = new java.util.LinkedHashSet<>();
+		if (currentAnimationName != null && !currentAnimationName.isBlank()) names.add(currentAnimationName);
+		if (upperName != null && !upperName.isBlank()) names.add(upperName);
+		return names;
 	}
 	private static String lastLogged = "";
 	/** 演示模式（`-Dtkgun.demo=1`）才打这类诊断日志。 */
@@ -762,8 +767,8 @@ public final class BowgunRig implements GeoReplacedEntity {
 				case SLIDE:
 					return play(state, "sliding");
 				case SLIDE_READY:
-					// 新素材把 `sliding_ready` 换成了同样 0.667 秒的 `fast_ready`
-					return play(state, "fast_ready");
+					// 收势动作沿用 0.667 秒的滑铲快举枪素材；资源中没有 `fast_ready`。
+					return play(state, "sliding_fast_ready");
 				case ROLL:
 					return play(state, "roll");
 				case ROLL_TO_IDLE:

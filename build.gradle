@@ -70,6 +70,7 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
     implementation fg.deobf('local:geckolib-forge-1.20.1:4.8.4')
+    implementation fg.deobf('local:player-animation-lib-forge:1.0.2-rc1+1.20')
     implementation fg.deobf('local:curios-forge:5.11.1+1.20.1')
     compileOnly fg.deobf('local:ShoulderSurfing-Forge-1.20.1:4.21.0')
     compileOnly fg.deobf('local:combatroll-forge:1.3.3+1.20.1')
@@ -125,6 +126,24 @@ tasks.register('verifyPortContracts', JavaExec) {
     mainClass = 'com.mechaniciancombat.item.BackpackTableTransitionContract'
 }
 
+tasks.register('verifyPlayerPoseContract', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.mechaniciancombat.client.rig.PlayerPoseTransformContract'
+}
+
+tasks.register('verifyBackpackAimRotation', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.mechaniciancombat.client.BackpackAimRotationContract'
+}
+
+tasks.register('verifyBackpackBoneVisibility', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.mechaniciancombat.client.BackpackBoneVisibilityContract'
+}
+
 // Separate, reobfuscated test mod for production-mapped server acceptance runs.
 // Test classes stay out of the distributable mod JAR.
 tasks.register('gameTestModJar', Jar) {
@@ -146,6 +165,9 @@ tasks.named('gameTestModJar').configure {
 
 tasks.named('check') {
     dependsOn tasks.named('verifyPortContracts')
+    dependsOn tasks.named('verifyPlayerPoseContract')
+    dependsOn tasks.named('verifyBackpackAimRotation')
+    dependsOn tasks.named('verifyBackpackBoneVisibility')
 }
 
 // Reobfuscation retains archive entries. Normalize their timestamps and ordering

@@ -68,7 +68,7 @@ public class BowgunItem extends Item {
 		ItemStack stack = user.getItemInHand(hand);
 		// **不可右键瞄准的状态 → 直接屏蔽右键输入**（用户 2026-10-17）：返回 `fail` 就不会
 		// `setCurrentHand`，玩家不会进入"使用物品"状态（没有举枪姿势、没有减速、没有 FOV）。
-		// 客户端看镜像状态；服务端看权威状态（两边同一条规则：翻滚/滑铲 + 结束后 1 秒）。
+		// 客户端看镜像状态；服务端看权威状态（两边同一条规则：翻滚动作、滑铲及滑铲后的锁）。
 		if (world.isClientSide) {
 			if (DistExecutor.unsafeCallWhenOn(Dist.CLIENT,
 					() -> () -> com.mechaniciancombat.client.ClientAimGuard.isCurrentPlayerAimLocked())) {

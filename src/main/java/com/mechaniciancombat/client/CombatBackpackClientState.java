@@ -173,7 +173,6 @@ public final class CombatBackpackClientState {
 	public static void reset(int playerId) {
 		ENTRIES.remove(playerId);
 		CombatBackpackAnimation.clear(playerId);
-		com.mechaniciancombat.client.rig.CombatBackpackRigLayer.clearCachedStack(playerId);
 	}
 
 	private static void updateAnimationPhase(int playerId, Entry entry) {

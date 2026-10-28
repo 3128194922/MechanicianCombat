@@ -12,19 +12,10 @@ import net.minecraft.world.item.ItemStack;
 import software.bernie.geckolib.cache.object.GeoBone;
 import software.bernie.geckolib.renderer.layer.GeoRenderLayer;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /** Draws the backpack on the chest bone of the custom Mechanic player rig. */
 public final class CombatBackpackRigLayer extends GeoRenderLayer<BowgunRig> {
-	private static final Map<Integer, ItemStack> LAST_EQUIPPED = new HashMap<>();
-
 	public CombatBackpackRigLayer(BowgunRigRenderer renderer) {
 		super(renderer);
-	}
-
-	public static void clearCachedStack(int entityId) {
-		LAST_EQUIPPED.remove(entityId);
 	}
 
 	@Override
@@ -39,11 +30,6 @@ public final class CombatBackpackRigLayer extends GeoRenderLayer<BowgunRig> {
 			return;
 		}
 		ItemStack stack = CombatBackpackItem.equippedStack(player);
-		if (!stack.isEmpty()) {
-			LAST_EQUIPPED.put(player.getId(), stack.copy());
-		} else {
-			stack = LAST_EQUIPPED.getOrDefault(player.getId(), ItemStack.EMPTY);
-		}
 		if (stack.isEmpty()) {
 			return;
 		}

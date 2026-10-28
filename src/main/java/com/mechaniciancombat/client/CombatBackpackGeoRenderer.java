@@ -49,8 +49,6 @@ public final class CombatBackpackGeoRenderer extends GeoItemRenderer<CombatBackp
 	private static final double AIM_SMOOTHING = 0.25D;
 	private LivingEntity currentEntity;
 	private boolean suppressC3Cubes;
-	private boolean autoAimCubesOnly;
-	private boolean allowAutoAimCubeRender;
 	private boolean attachedCoreInstalled;
 	private BackpackUpgradeData.LauncherType attachedLauncherType =
 			BackpackUpgradeData.LauncherType.NONE;
@@ -226,17 +224,14 @@ public final class CombatBackpackGeoRenderer extends GeoItemRenderer<CombatBackp
 					|| (autoLauncher && "auto_C3".equals(bone.getName()))) {
 				aimRotation = calculateAimRotation(matrices, currentEntity, bone);
 				if (aimRotation != null) {
-					Vector3f euler = aimRotation.getEulerAnglesZYX(new Vector3f());
-					bone.updateRotation((float) Math.toDegrees(euler.x()),
-							(float) Math.toDegrees(euler.y()),
-							(float) Math.toDegrees(euler.z()));
+					BackpackAimRotation.apply(bone, aimRotation);
 				}
 			}
 		}
 		switch (bone.getName()) {
 			case "core" -> bone.setHidden(!coreInstalled);
 			case "C1", "C2", "C3" -> bone.setHidden(!launcherInstalled);
-			case "auto_C1" -> bone.setHidden(!autoLauncher);
+			case "auto_C1", "auto_C2", "auto_C3" -> bone.setHidden(!autoLauncher);
 			case "auto_ejector", "auto_box", "auto_sight", "auto_barrel" ->
 					bone.setHidden(!autoLauncher);
 			case "summon_C1", "summon_C2", "summon_C3", "summon_locator" ->
@@ -248,19 +243,13 @@ public final class CombatBackpackGeoRenderer extends GeoItemRenderer<CombatBackp
 			renderC3Independently(matrices, bone, buffer, packedLight, packedOverlay,
 					red, green, blue, alpha, aimRotation);
 			boolean previousSuppress = suppressC3Cubes;
-			boolean previousAutoAimCubesOnly = autoAimCubesOnly;
-			boolean previousAllowAutoAimCubeRender = allowAutoAimCubeRender;
 			suppressC3Cubes = true;
-			autoAimCubesOnly = autoLauncher && "auto_C3".equals(bone.getName());
-			allowAutoAimCubeRender = false;
 			try {
 				super.renderRecursively(matrices, animatable, bone, renderType, consumers,
 						buffer, isReRender, tickDelta, packedLight, packedOverlay,
 						red, green, blue, alpha);
 			} finally {
 				suppressC3Cubes = previousSuppress;
-				autoAimCubesOnly = previousAutoAimCubesOnly;
-				allowAutoAimCubeRender = previousAllowAutoAimCubeRender;
 			}
 		} else {
 			super.renderRecursively(matrices, animatable, bone, renderType, consumers, buffer,
@@ -286,24 +275,7 @@ public final class CombatBackpackGeoRenderer extends GeoItemRenderer<CombatBackp
 		boolean autoLauncher = attachedLauncherType
 				== BackpackUpgradeData.LauncherType.AUTO;
 		boolean summonLauncher = attachedLauncherType == BackpackUpgradeData.LauncherType.SUMMON_ANTENNA;
-		if (("C3".equals(bone.getName()) || "auto_C3".equals(bone.getName()))
-				&& suppressC3Cubes) {
-			return;
-		}
-		if (autoLauncher && autoAimCubesOnly
-				&& ("auto_ejector".equals(bone.getName())
-						|| "auto_box".equals(bone.getName())
-						|| "auto_sight".equals(bone.getName())
-						|| "auto_barrel".equals(bone.getName()))) {
-			return;
-		}
-		if (autoLauncher && "auto_C3".equals(bone.getName())
-				&& !allowAutoAimCubeRender) {
-			return;
-		}
-		if ((autoLauncher || summonLauncher) && ("C1".equals(bone.getName())
-				|| "C2".equals(bone.getName())
-				|| "C3".equals(bone.getName()))) {
+		if (!BackpackBoneVisibility.draw(bone.getName(), autoLauncher, summonLauncher, suppressC3Cubes)) {
 			return;
 		}
 		super.renderCubesOfBone(matrices, bone, buffer, packedLight, packedOverlay,
@@ -315,8 +287,6 @@ public final class CombatBackpackGeoRenderer extends GeoItemRenderer<CombatBackp
 										   int packedOverlay, float red, float green,
 										   float blue, float alpha,
 									   Quaternionf rotation) {
-		boolean previousAllowAutoAimCubeRender = allowAutoAimCubeRender;
-		allowAutoAimCubeRender = true;
 		matrices.pushPose();
 		try {
 			RenderUtils.translateMatrixToBone(matrices, bone);
@@ -328,7 +298,6 @@ public final class CombatBackpackGeoRenderer extends GeoItemRenderer<CombatBackp
 					red, green, blue, alpha);
 		} finally {
 			matrices.popPose();
-			allowAutoAimCubeRender = previousAllowAutoAimCubeRender;
 		}
 	}
 

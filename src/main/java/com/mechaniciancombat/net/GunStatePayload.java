@@ -25,10 +25,10 @@ public record GunStatePayload(int playerId, byte state, int ticks, int heat, int
 				buf.writeBoolean(value.reloading());
 				buf.writeBoolean(value.focus());
 				buf.writeVarInt(value.shotSeq());
-				// 2026-10-17：**翻滚后的加速冲刺窗口里**（`dashUntil` 未到）—— 客户端用它禁止右键瞄准。
+				// 翻滚后的加速冲刺窗口；客户端用于移动与闪避预测。
 				buf.writeBoolean(value.dashing());
 				buf.writeVarInt(value.dashTicks());
-				// 2026-10-18：翻滚 / 滑铲及其结束后的右键瞄准锁剩余 tick。
+				// 滑铲后的右键瞄准锁剩余 tick。
 				buf.writeVarInt(value.aimLockTicks());
 				buf.writeVarInt(value.heatLockTicks());
 				buf.writeUtf(value.magAmmo());

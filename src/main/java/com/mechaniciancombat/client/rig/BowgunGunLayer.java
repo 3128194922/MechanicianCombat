@@ -19,8 +19,7 @@ import software.bernie.geckolib.renderer.layer.GeoRenderLayer;
 /**
  * 枪那一份：同一份几何里的**枪件骨骼**，换作者的枪贴图补画一遍。
  *
- * <p>做法：主渲染在 {@link BowgunRigRenderer#renderCubesOfBone} 里跳过非身体骨骼（免得拿玩家皮肤画枪），
- * 这里在 {@link #renderForBone} 里用枪贴图把它们补画。
+ * <p>主渲染器只评估 GeckoLib 动画、不绘制几何；这里在 {@link #renderForBone} 里用枪贴图绘制枪械骨骼。
  * 用的是**主模型那根骨骼此刻被动画摆好的姿态**（同一个 poseStack），所以枪真的跟着
  * 手臂 / 后坐 / 拉栓 / 抛壳 / 翻滚一起动；{@code renderCube} 不检查 hidden，所以藏了也能画。
  *

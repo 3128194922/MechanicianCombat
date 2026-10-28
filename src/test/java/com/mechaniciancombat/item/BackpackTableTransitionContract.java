@@ -12,8 +12,14 @@ public final class BackpackTableTransitionContract {
 		check(!BackpackTableTransition.shouldDetachPreviousBackpack(false, true, false),
 				"inserting the first backpack must not detach unrelated modules");
 		com.mechaniciancombat.client.rig.ArmorPartPolicyContract.main(args);
+		com.mechaniciancombat.client.rig.ArmorModelAlignmentContract.main(args);
 		AmmoRingRulesContract.main(args);
 		com.mechaniciancombat.client.ShoulderCameraAnglesContract.main(args);
+		com.mechaniciancombat.client.AimTransitionContract.main(args);
+		com.mechaniciancombat.client.ClientAimStateContract.main(args);
+		com.mechaniciancombat.client.HeatVentVertexContract.main(args);
+		com.mechaniciancombat.client.VentEmissionTrackerContract.main(args);
+		com.mechaniciancombat.client.GunPerspectiveGuardContract.main(args);
 	}
 
 	private static void check(boolean condition, String message) {
