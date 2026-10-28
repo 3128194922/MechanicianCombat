@@ -9,16 +9,13 @@ public final class ShoulderCameraAnglesContract {
         close(camera.pitch(), 90.0F, "pitch must clamp at +90");
         camera.turn(0, -2000);
         close(camera.pitch(), -90.0F, "pitch must clamp at -90");
-        close(ShoulderCameraAngles.steerYaw(0, 0, 1), -4, "A turns left by at most four degrees");
-        close(ShoulderCameraAngles.steerYaw(0, 0, -1), 4, "D turns right by at most four degrees");
-        float yaw = 0;
-        for (int i = 0; i < 30; i++) yaw = ShoulderCameraAngles.steerYaw(yaw, 0, 1);
-        close(yaw, -45, "held steering converges to the 45-degree target");
+        close(ShoulderCameraAngles.steerYaw(0, 90, 1), 90, "running follows the camera immediately");
+        close(ShoulderCameraAngles.steerYaw(0, -90, -1), -90, "strafe does not offset the camera heading");
         close(ShoulderCameraAngles.steerYaw(179, -179, 0), -179, "steering takes shortest wraparound path");
         camera.reset(40, 15);
         close(camera.yaw(), 40, "new session resets yaw");
         close(camera.pitch(), 15, "new session resets pitch");
-        System.out.println("ShoulderCameraAnglesContract: 9 checks passed");
+        System.out.println("ShoulderCameraAnglesContract: 8 checks passed");
     }
 
     private static void close(float actual, float expected, String message) {

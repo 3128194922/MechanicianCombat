@@ -533,13 +533,11 @@ public final class BowgunRig implements GeoReplacedEntity {
 		boolean holding = holdingGunUp(entity);
 		String moveAnim = TkGunClient.walkAnimation(entity.getId());
 		boolean moving = TkGunClient.isMoving(entity.getId());
+		long now = entity.level().getGameTime();
+		if (holding || moving) LAST_UPPER_OPERATION.put(entity.getId(), now);
 		// 奔跑时让作者完整 run 的上半身动作播放，不被 stand_shooting_hold 覆盖。
 		if ("run".equals(moveAnim) || ((net.minecraft.world.entity.player.Player) entity).isSprinting()) {
 			return null;
-		}
-		long now = entity.level().getGameTime();
-		if (holding || moving) {
-			LAST_UPPER_OPERATION.put(entity.getId(), now);
 		}
 		if (holding) {
 			// 腰射：开火那一遍整段重播；只是举着枪 → 端枪静姿（别空放一发后坐）
@@ -551,6 +549,19 @@ public final class BowgunRig implements GeoReplacedEntity {
 			return "stand_shooting_hold";
 		}
 		return null;
+	}
+
+	public static boolean recentUpperOperation(Entity entity) {
+		long last = LAST_UPPER_OPERATION.getOrDefault(entity.getId(), Long.MIN_VALUE);
+		return last >= 0 && entity.level().getGameTime() - last <= UPPER_IDLE_DELAY_TICKS;
+	}
+
+	public static void clearUpperOperations() {
+		LAST_UPPER_OPERATION.clear();
+	}
+
+	public static void clearUpperOperation(int entityId) {
+		LAST_UPPER_OPERATION.remove(entityId);
 	}
 
 	/** 上半身叠层出场了吗（`pick` 那条只管腿；渲染器也用它决定特效骨显隐）。 */

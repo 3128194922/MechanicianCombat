@@ -19,9 +19,7 @@ public final class ShoulderCameraAngles {
     }
 
     public static float steerYaw(float bodyYaw, float cameraYaw, float sideways) {
-        float target = wrap(cameraYaw - Math.max(-1, Math.min(1, sideways)) * 45.0F);
-        float delta = wrap(target - bodyYaw);
-        return wrap(bodyYaw + Math.max(-4, Math.min(4, delta)));
+        return wrap(cameraYaw);
     }
 
     private static float wrap(float angle) {

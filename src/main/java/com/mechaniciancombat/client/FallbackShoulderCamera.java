@@ -35,8 +35,6 @@ public final class FallbackShoulderCamera {
 	private static final double ACTION_HEIGHT = 0.32D;
 	private static final double TRANSITION_SECONDS = 0.10D;
 	private static final double COLLISION_MARGIN = 0.15D;
-	private static final float MAX_RUN_STEER_DEGREES = 45.0F;
-	private static final float RUN_STEER_DEGREES_PER_TICK = 4.0F;
 
 	private static boolean active;
 	private static boolean initialized;
@@ -128,8 +126,7 @@ public final class FallbackShoulderCamera {
 	}
 
 	/**
-	 * In decoupled sprint/dash movement, A/D steer the body instead of
-	 * producing vanilla camera-relative strafe input.
+	 * Align running movement with the camera while preserving all movement input.
 	 */
 	public static boolean steerRunningInput(Minecraft client, KeyboardInput input) {
 		if (!active || !isEligible(client) || client.screen != null) {
@@ -149,8 +146,6 @@ public final class FallbackShoulderCamera {
 		player.setYBodyRot(yBodyRot);
 		player.setYHeadRot(ANGLES.yaw());
 
-		// A/D are steering commands while running, not simultaneous strafe.
-		input.leftImpulse = 0.0F;
 		return true;
 	}
 

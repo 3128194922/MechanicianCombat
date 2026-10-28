@@ -41,15 +41,16 @@ public final class ShoulderCouplingState {
 			return false;
 		}
 		int id = client.player.getId();
-		if (client.player.isSprinting() || GunClientState.dashing(id)
-				|| GunClientState.focusish(id) || GunClientState.aimLocked(id)) {
+		if (GunClientState.focusish(id)) {
 			return false;
 		}
 		GunClientState.Entry state = GunClientState.get(id);
 		if (state == null) {
 			return true;
 		}
-		if (state.state == TkGun.State.IDLE && !TkGunClient.isMoving(id)) return false;
+		if (state.state == TkGun.State.IDLE && !TkGunClient.isMoving(id)
+				&& !TkGunClient.hasMovementInput(id)
+				&& !com.mechaniciancombat.client.rig.BowgunRig.recentUpperOperation(client.player)) return false;
 		return switch (state.state) {
 			case ROLL, ROLL_TO_IDLE, SLIDE, SLIDE_READY, OVERHEAT, OVER, INSPECT -> false;
 			default -> true;

@@ -631,6 +631,18 @@ public final class GunCamera {
 		return TkGunClient.muzzleWorldDir();
 	}
 
+	/** Current camera ray, recomputed for the muzzle sampled in this render frame. */
+	static Vec3 directionToCrosshair(Minecraft client, Vec3 muzzle) {
+		Camera camera = client.gameRenderer.getMainCamera();
+		Vec3 look = Vec3.directionFromRotation(camera.getXRot(), camera.getYRot());
+		Vec3 target = cast(client, camera.getPosition(), look);
+		Vec3 delta = target.subtract(muzzle);
+		if (delta.horizontalDistanceSqr() < 4.0D || delta.x * look.x + delta.z * look.z < 0.0D) {
+			return look;
+		}
+		return delta.normalize();
+	}
+
 	/** 准星超出枪口左右 25° 扇区时，HUD 隐藏落点圈并显示方向箭头。 */
 	public static boolean aimOutsideCone() {
 		return aimOutsideCone;

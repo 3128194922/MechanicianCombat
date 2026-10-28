@@ -617,10 +617,26 @@ public final class TkGunClient {
 	/**
 	 * **发一个开火包**（普通单发和强化的过载连射共用）。
 	 *
-	 * <p>枪口 = 渲染时量到的 `locator` 世界坐标；朝向 = 瞄准时的 `GunCamera.aimDir`
-	 * （从 locator 指向慢慢转过去的落点），没瞄准就是实测的枪管方向。枪口位置永远不变。
+	 * <p>枪口取最近一次渲染样本；腰射使用准星方向，瞄准使用现有瞄准方向。
 	 */
 	public static void sendFirePacket(Minecraft client, String why) {
+		sendFirePacket(client, why, null);
+	}
+
+	private static void fireHipImmediately(Minecraft client) {
+		var camera = client.gameRenderer.getMainCamera();
+		float yaw = net.minecraft.util.Mth.wrapDegrees(camera.getYRot());
+		client.player.setYRot(yaw);
+		client.player.setYBodyRot(yaw);
+		client.player.setYHeadRot(yaw);
+		client.player.yRotO = yaw;
+		client.player.yBodyRotO = yaw;
+		net.minecraft.world.phys.Vec3 origin = muzzleValid
+				? muzzleWorldPos() : client.player.getEyePosition();
+		sendFirePacket(client, "左键(腰射)", GunCamera.directionToCrosshair(client, origin));
+	}
+
+	private static void sendFirePacket(Minecraft client, String why, net.minecraft.world.phys.Vec3 overrideDirection) {
 		if (client.player == null) {
 			return;
 		}
@@ -630,7 +646,7 @@ public final class TkGunClient {
 		double dx = muzzleDx;
 		double dy = muzzleDy;
 		double dz = muzzleDz;
-		net.minecraft.world.phys.Vec3 aimDir = GunCamera.shotDirection(client);
+		net.minecraft.world.phys.Vec3 aimDir = overrideDirection != null ? overrideDirection : GunCamera.shotDirection(client);
 		if (aimDir != null) {
 			dx = aimDir.x;
 			dy = aimDir.y;
@@ -643,9 +659,9 @@ public final class TkGunClient {
 			mx = eye.x;
 			my = eye.y;
 			mz = eye.z;
-			dx = look.x;
-			dy = look.y;
-			dz = look.z;
+			dx = overrideDirection != null ? overrideDirection.x : look.x;
+			dy = overrideDirection != null ? overrideDirection.y : look.y;
+			dz = overrideDirection != null ? overrideDirection.z : look.z;
 		}
 		// why == null = 连发补包（每 3 tick 一个，不想刷屏）；只给第一个补包打一行
 		if (why != null) {
@@ -772,12 +788,14 @@ public final class TkGunClient {
 		}
 		GunDebugHarness.tick(client);
 		if (client.level == null || client.player == null) {
+			muzzleValid = false;
 			PERSPECTIVE_GUARD.reset();
 			heldGunLastTick = false;
 			FallbackShoulderCamera.leave(client);
 			GunCamera.resetVanillaState();
 			// Player entity IDs can be reused after reconnecting; discard the previous world's sampled PAL poses.
 			com.mechaniciancombat.client.rig.BowgunPlayerAnimatorPose.clear();
+			com.mechaniciancombat.client.rig.BowgunRig.clearUpperOperations();
 			MOVES.clear();
 			VENTING_PLAYERS.clear();
 			backpackActionDown = false;
@@ -792,6 +810,8 @@ public final class TkGunClient {
 			// vanilla first-person camera/action logic takes over immediately.
 			// 弹匣/热量保留；重新持枪时服务端会补发权威状态。
 			GunClientState.onGunReleased(client.player.getId());
+			muzzleValid = false;
+			com.mechaniciancombat.client.rig.BowgunRig.clearUpperOperation(client.player.getId());
 		}
 		heldGunLastTick = holdingGunNow;
 		tickClientStepHeight(client, holdingGunNow);
@@ -801,6 +821,7 @@ public final class TkGunClient {
 		FallbackShoulderCamera.tick(client);
 		// 越肩视角 + "身体/视角解耦"的状态机（鼠标增量、身体转向、FOV 放大系数都在里面推进）
 		GunCamera.tickEnd(client);
+		boolean hipFireInterrupted = false;
 		// —— Z 键 = 切换专注（架枪）——
 		// ⚠️ 2026-10-17：**不再用 `FOCUS_KEY.wasPressed()`**（用户报"按 Z 没反应"）。那条路要经过
 		// Fabric 的按键注册 + 原版 `KeyBinding` 的按下处理，任何一环在这个整合包里出问题（别的 mod
@@ -814,6 +835,7 @@ public final class TkGunClient {
 		if (focusDown != focusKeyDown) {
 			focusKeyDown = focusDown;
 			if (focusDown && TkGun.holdingGun(client.player)) {
+				hipFireInterrupted = true;
 				// **翻滚中按 Z = 快速蹲射**（用户 2026-10-17）：不再屏蔽 —— 服务端会打断翻滚动画、
 				// 按快档（`sliding_fast_ready`）直接进架枪，见 `TkGunServer#startFocus` 里的快速状态分支。
 				// 翻滚中按 Z 一定是"进入快速蹲射"意图：此时客户端镜像可能还残留着翻滚前的
@@ -859,6 +881,7 @@ public final class TkGunClient {
 				// **翻滚期间屏蔽装填**（用户 2026-10-17）：F 会把 ROLL 顶成 RELOAD，翻滚动画只播一半。
 				TkGun.LOGGER.info("[tkgun] F：翻滚中，等翻滚动画播完再装填");
 			} else {
+				hipFireInterrupted = true;
 				// 过热期间的装填**不在客户端拦**（用户 2026-10-17）：过热里翻滚后的冲刺窗口内允许
 				// 立刻装弹，客户端看不到 `dashUntil`，所以交给服务端权威判定。
 				ClientNetwork.send(new GunReloadPayload());
@@ -918,6 +941,7 @@ public final class TkGunClient {
 				// **蹲射准备期间（AIM/AIM_FAST/AIM_SLIDE 过门）屏蔽闪避键**（用户 2026-10-17）。
 				TkGun.LOGGER.info("[tkgun] 翻滚键：蹲射准备中，忽略");
 			} else {
+				hipFireInterrupted = true;
 				ClientNetwork.send(new GunRollPayload());
 				// 状态包要下一 tick 才到；先把本地 rig 锁到 ROLL，避免闪一帧 run。
 				GunClientState.beginLocalRoll(client.player.getId());
@@ -937,10 +961,12 @@ public final class TkGunClient {
 		if (below && !attackWasDown) {
 			boolean holding = TkGun.holdingGun(client.player);
 			boolean noScreen = client.screen == null;
-			if (holding && noScreen) {
-				// 左键同时支持腰射和瞄准射击；服务端负责状态、弹药和冷却校验。
-				sendFirePacket(client,
-						GunClientState.focusish(client.player.getId()) ? "左键(专注)" : "左键");
+			if (holding && noScreen && !hipFireInterrupted) {
+				if (GunClientState.focusish(client.player.getId()) || GunCamera.aiming(client)) {
+					sendFirePacket(client, "左键(瞄准)");
+				} else {
+					fireHipImmediately(client);
+				}
 			} else {
 				// 诊断用：按了左键但没发包，说清楚是哪一个条件挡的（2026-10-13 用户报"按左键没反应"）
 				TkGun.LOGGER.info("[tkgun] 左键按下但没发包：手持弩炮={} 界面为空={}（主手={}）",

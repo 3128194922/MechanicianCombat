@@ -162,6 +162,8 @@ public final class R396ContentGameTests {
         com.mechaniciancombat.TkGunServer.tryFire(player, false);
         helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 5,
                 "hip fire must enqueue one shot and consume one round without aiming");
+        helper.assertTrue(state.shotCycle == com.mechaniciancombat.TkGun.SHOT_CYCLE_TICKS,
+                "hip fire must use the normal firing interval");
         com.mechaniciancombat.TkGunServer.tryFire(player, false);
         helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 5,
                 "duplicate trigger in the same tick must not consume another round");
@@ -174,6 +176,8 @@ public final class R396ContentGameTests {
         com.mechaniciancombat.TkGunServer.tryFire(player, false);
         helper.assertTrue(state.shotQueue.size() == 1 && state.mag == 6,
                 "aimed fire must still enqueue one shot");
+        helper.assertTrue(state.shotCycle == com.mechaniciancombat.TkGun.SHOT_CYCLE_TICKS,
+                "aimed and hip fire must use the same firing interval");
         player.stopUsingItem();
         state.shotQueue.clear();
         state.shotAnimating = false;
