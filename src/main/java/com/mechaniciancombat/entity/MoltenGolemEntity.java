@@ -6,6 +6,10 @@ import com.mechaniciancombat.TkGunParticles;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.damagesource.DamageSource;
@@ -40,8 +44,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Optional;
 
-public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
+public final class MoltenGolemEntity extends IronGolem implements GeoEntity, OwnableEntity {
 	private static final int LANDING_TICKS = 70;
 	private static final int ATK2_COOLDOWN_TICKS = 100;
 	private static final int ATK3_COOLDOWN_TICKS = 400;
@@ -49,6 +54,8 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 	private static final EntityDataAccessor<Integer> VISUAL_STATE =
 			SynchedEntityData.defineId(MoltenGolemEntity.class,
 					EntityDataSerializers.INT);
+	private static final EntityDataAccessor<Optional<UUID>> OWNER =
+			SynchedEntityData.defineId(MoltenGolemEntity.class, EntityDataSerializers.OPTIONAL_UUID);
 
 	private static final SoundEvent SWING_SOUND = com.mechaniciancombat.registry.ModRegistries.GOLEM_SWING.get();
 	private static final SoundEvent HAMMER_SOUND = com.mechaniciancombat.registry.ModRegistries.GOLEM_HAMMER.get();
@@ -65,7 +72,6 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 	private int attackElapsed;
 	private boolean attackDamageDone;
 	private AttackKind attackKind = AttackKind.NONE;
-	private UUID ownerUuid;
 	private VisualState clientVisualState = VisualState.IDLE;
 	private int clientVisualTicks;
 	private int clientAttackEffectMask;
@@ -79,6 +85,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		setVisualState(VisualState.LANDING);
 		setNoAi(true);
 		goalSelector.addGoal(3, new FollowSummonerGoal(this, 1.0D, 6.0D, 3.0D));
+		targetSelector.addGoal(1, new OwnerCombatGoal(this));
 	}
 
 	public enum VisualState {
@@ -129,6 +136,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 	protected void defineSynchedData() {
 		super.defineSynchedData();
 		entityData.define(VISUAL_STATE, VisualState.LANDING.ordinal());
+		entityData.define(OWNER, Optional.empty());
 	}
 
 	public VisualState getVisualState() {
@@ -166,9 +174,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 			}
 			return;
 		}
-		if (ownerUuid == null) {
-			bindNearestSummoner();
-		}
+		if (getTarget() != null && !canDamage(getTarget())) setTarget(null);
 		if (atk3Cooldown > 0) {
 			atk3Cooldown--;
 		}
@@ -202,7 +208,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 
 	@Override
 	public boolean doHurtTarget(Entity target) {
-		if (level().isClientSide() || target == null || attackKind != AttackKind.NONE
+		if (level().isClientSide() || !(target instanceof LivingEntity living) || !canDamage(living) || attackKind != AttackKind.NONE
 				|| summonTicks > 0 || CombatTargeting.isGolem(target)) {
 			return false;
 		}
@@ -221,6 +227,12 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 			atk2Cooldown = ATK2_COOLDOWN_TICKS;
 		}
 		return true;
+	}
+
+	@Override
+	public boolean canAttackType(EntityType<?> type) {
+		return getOwnerUUID() != null && (type == EntityType.PLAYER || type == EntityType.CREEPER)
+				|| super.canAttackType(type);
 	}
 
 	private AttackKind chooseAttack() {
@@ -351,7 +363,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		if (CombatTargeting.isGolem(entity)) {
 			return false;
 		}
-		if (ownerUuid != null && ownerUuid.equals(entity.getUUID())) {
+		if (isAlliedTo(entity)) {
 			return false;
 		}
 		LivingEntity currentTarget = getTarget();
@@ -478,14 +490,8 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 				position.x, position.y, position.z, getId(), scale, generation);
 	}
 
-	private void bindNearestSummoner() {
-		Player nearest = level().getNearestPlayer(this, 16.0D);
-		if (nearest != null && nearest.isAlive()) {
-			ownerUuid = nearest.getUUID();
-		}
-	}
-
 	private Player getSummoner() {
+		UUID ownerUuid = getOwnerUUID();
 		if (ownerUuid == null || !(level() instanceof ServerLevel serverWorld)) {
 			return null;
 		}
@@ -493,11 +499,41 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 	}
 
 	public void setSummoner(UUID summoner) {
-		this.ownerUuid = summoner;
+		entityData.set(OWNER, Optional.ofNullable(summoner));
+		if (getTarget() != null && isAlliedTo(getTarget())) setTarget(null);
+	}
+
+	@Override
+	public UUID getOwnerUUID() { return entityData.get(OWNER).orElse(null); }
+
+	@Override
+	public boolean isAlliedTo(Entity entity) {
+		UUID owner = getOwnerUUID();
+		if (owner != null) {
+			if (owner.equals(entity.getUUID())) return true;
+			if (entity instanceof OwnableEntity pet && owner.equals(pet.getOwnerUUID())) return true;
+			Player player = getSummoner();
+			if (player != null && (player.isAlliedTo(entity)
+					|| entity instanceof Player other && !player.canHarmPlayer(other))) return true;
+		}
+		return super.isAlliedTo(entity);
+	}
+
+	@Override
+	protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+		if (player.getItemInHand(hand).is(Items.COMMAND_BLOCK) && getOwnerUUID() == null) {
+			if (!level().isClientSide()) {
+				setSummoner(player.getUUID());
+				setTarget(null);
+				level().broadcastEntityEvent(this, (byte) 7);
+			}
+			return InteractionResult.sidedSuccess(level().isClientSide());
+		}
+		return super.mobInteract(player, hand);
 	}
 
 	public boolean isSummonedBy(UUID summoner) {
-		return summoner != null && summoner.equals(ownerUuid);
+		return summoner != null && summoner.equals(getOwnerUUID());
 	}
 
 	public void beginRelocationSummon(double x, double y, double z, float yaw) {
@@ -524,7 +560,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		AABB area = AABB.ofSize(center, radius * 2.0D, radius * 2.0D, radius * 2.0D);
 		for (LivingEntity target : level().getEntitiesOfClass(LivingEntity.class, area,
 				entity -> entity != this && entity.isAlive() && !entity.isSpectator()
-						&& !CombatTargeting.isGolem(entity))) {
+						&& !CombatTargeting.isGolem(entity) && !isAlliedTo(entity))) {
 			Vec3 targetCenter = target.getBoundingBox().getCenter();
 			double distance = targetCenter.distanceTo(center);
 			if (distance > radius) {
@@ -577,8 +613,8 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		nbt.putBoolean("AttackDamageDone", attackDamageDone);
 		nbt.putString("AttackKind", attackKind.name());
 		nbt.putInt("VisualState", getVisualState().ordinal());
-		if (ownerUuid != null) {
-			nbt.put("Owner", NbtUtils.createUUID(ownerUuid));
+		if (getOwnerUUID() != null) {
+			nbt.put("Owner", NbtUtils.createUUID(getOwnerUUID()));
 		}
 	}
 
@@ -590,7 +626,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		atk3Cooldown = nbt.getInt("Atk3Cooldown");
 		attackElapsed = nbt.getInt("AttackElapsed");
 		attackDamageDone = nbt.getBoolean("AttackDamageDone");
-		ownerUuid = nbt.contains("Owner") ? NbtUtils.loadUUID(nbt.get("Owner")) : null;
+		setSummoner(nbt.hasUUID("Owner") ? nbt.getUUID("Owner") : null);
 		try {
 			attackKind = AttackKind.valueOf(nbt.getString("AttackKind"));
 		} catch (IllegalArgumentException exception) {
@@ -632,12 +668,60 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		return animationCache;
 	}
 
+	private static final class OwnerCombatGoal extends Goal {
+		private final MoltenGolemEntity golem;
+		private LivingEntity enemy;
+		private int hurtTimestamp;
+		private int attackTimestamp;
+		private boolean defending;
+
+		private OwnerCombatGoal(MoltenGolemEntity golem) {
+			this.golem = golem;
+			setFlags(EnumSet.of(Flag.TARGET));
+		}
+
+		@Override
+		public boolean canUse() {
+			Player owner = golem.getSummoner();
+			if (owner == null || !owner.isAlive() || owner.isSpectator()) return false;
+			LivingEntity attacker = owner.getLastHurtByMob();
+			if (owner.getLastHurtByMobTimestamp() != hurtTimestamp && valid(attacker)) {
+				enemy = attacker;
+				defending = true;
+				return true;
+			}
+			LivingEntity victim = owner.getLastHurtMob();
+			if (owner.getLastHurtMobTimestamp() != attackTimestamp && valid(victim)) {
+				enemy = victim;
+				defending = false;
+				return true;
+			}
+			return false;
+		}
+
+		private boolean valid(LivingEntity target) {
+			return target != null && target.isAlive() && !target.isSpectator()
+					&& !CombatTargeting.isGolem(target) && !golem.isAlliedTo(target)
+					&& golem.canAttack(target);
+		}
+
+		@Override
+		public void start() {
+			Player owner = golem.getSummoner();
+			if (owner == null) return;
+			if (defending) hurtTimestamp = owner.getLastHurtByMobTimestamp();
+			else attackTimestamp = owner.getLastHurtMobTimestamp();
+			golem.setTarget(enemy);
+		}
+	}
+
 	private static final class FollowSummonerGoal extends Goal {
 		private final MoltenGolemEntity golem;
 		private final double speed;
 		private final double startDistance;
 		private final double stopDistance;
 		private Player owner;
+		private int recalculateTicks;
 
 		private FollowSummonerGoal(MoltenGolemEntity golem, double speed,
 								   double startDistance, double stopDistance) {
@@ -658,8 +742,7 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 				return false;
 			}
 			double distance = golem.distanceToSqr(owner);
-			return distance > startDistance * startDistance
-					&& distance < 32.0D * 32.0D;
+			return distance > startDistance * startDistance;
 		}
 
 		@Override
@@ -677,7 +760,8 @@ public final class MoltenGolemEntity extends IronGolem implements GeoEntity {
 		@Override
 		public void tick() {
 			golem.getLookControl().setLookAt(owner, 10.0F, 10.0F);
-			if (golem.getNavigation().isDone()) {
+			if (--recalculateTicks <= 0) {
+				recalculateTicks = 10;
 				golem.getNavigation().moveTo(owner, speed);
 			}
 		}

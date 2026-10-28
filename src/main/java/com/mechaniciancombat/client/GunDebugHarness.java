@@ -182,6 +182,19 @@ public final class GunDebugHarness {
 					CombatBackpackClientState.charges(client.player.getId()));
 			shot(client, "tkgun_backpack_" + tick + ".png");
 		}
+		if (BACKPACK_DEMO && tick == 180) {
+			client.player.getInventory().selected = 1;
+		}
+		if (BACKPACK_DEMO && tick == 190) {
+			client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
+			CombatBackpackClientState.trigger(client.player);
+		}
+		if (BACKPACK_DEMO && (tick == 200 || tick == 218)) {
+			TkGun.LOGGER.info("[tkgun-backpack-demo] no-gun tick={} holding={} status={}", tick,
+					TkGun.holdingGun(client.player), CombatBackpackClientState.statusPhase(client.player.getId()));
+			shot(client, "tkgun_backpack_nogun_" + tick + ".png");
+		}
+		if (BACKPACK_DEMO && tick == 230) client.player.getInventory().selected = 0;
 		if (tick == 5) {
 			client.player.getInventory().selected = 0;
 			client.options.keyHotbarSlots[0].setDown(true);   // 让**服务端**也知道切到了槽 0
@@ -278,7 +291,8 @@ public final class GunDebugHarness {
 			client.options.keyUp.setDown(move);
 			// 疾跑/滑铲都要"人在动"才成立：光按疾跑键、不按前进键，原版不会进疾跑
 			client.options.keySprint.setDown(tick > 270 && tick <= 300);
-			client.options.keyShift.setDown(tick > 290 && tick <= 300);
+			client.options.keyShift.setDown((tick > 290 && tick <= 300)
+					|| (BACKPACK_DEMO && tick >= 210 && tick <= 220));
 		} else if (tick >= 400 && tick <= 520) {
 			// —— 相机阶段（2026-10-14 用户要求：越肩视角 + 人物/摄像头解耦 + 右键转向 + 瞄准放大）——
 			// 键位照旧的语义按（长按右键 = 瞄准），鼠标用 changeLookDirection 模拟（端到端走同一条路）。

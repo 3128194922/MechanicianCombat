@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.PlayerModel;
+import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.world.entity.LivingEntity;
@@ -34,18 +35,19 @@ public final class CombatBackpackCurioRenderer implements ICurioRenderer {
 		}
 		matrices.pushPose();
 		try {
-			ICurioRenderer.translateIfSneaking(matrices, wearer);
-			ICurioRenderer.rotateIfSneaking(matrices, wearer);
-			playerModel.body.translateAndRotate(matrices);
-			// GeckoLib 已在烘焙时反转几何 X 轴，因此此处不要再次镜像。
-			// 模型宽 8 像素，从 X=0 延伸到 X=0.5；左移 0.25 格使其在躯干居中。
-			// 从身体枢轴下移 0.50 格，将模型落在背部躯干而不是头部后方。
-			// Z 范围为 0..0.25，向后偏移 0.125 格后贴合躯干背面。
-			matrices.translate(-0.25D, 0.50D, 0.125D);
+			applyBodyAttachment(matrices, playerModel.body);
 			CombatBackpackGeoRenderer.getAccessory().renderAttached(
 					stack, wearer, matrices, consumers, light, tickDelta);
 		} finally {
 			matrices.popPose();
 		}
+	}
+
+	static void applyBodyAttachment(PoseStack matrices, ModelPart body) {
+		// The player model already includes its crouch translation and rotation.
+		body.translateAndRotate(matrices);
+		// LivingEntityRenderer flips X and Y for ModelPart; restore the geo model frame.
+		matrices.translate(0.25D, 0.0D, 0.125D);
+		matrices.scale(-1.0F, -1.0F, 1.0F);
 	}
 }

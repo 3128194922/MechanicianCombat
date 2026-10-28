@@ -21,6 +21,65 @@ import java.util.UUID;
 @GameTestHolder("tkgun")
 @PrefixGameTestTemplate(false)
 public final class R396ContentGameTests {
+    @GameTest(template = "empty", timeoutTicks = 40)
+    public static void commandBlockTamesOnlyUnownedGolem(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var owner = net.minecraftforge.common.util.FakePlayerFactory.get(level,
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "golem_owner"));
+        var other = net.minecraftforge.common.util.FakePlayerFactory.get(level,
+                new com.mojang.authlib.GameProfile(UUID.randomUUID(), "golem_other"));
+        var golem = ModRegistries.MOLTEN_GOLEM.get().create(level);
+        golem.moveTo(owner.getX(), owner.getY(), owner.getZ());
+        golem.tick();
+        helper.assertTrue(!golem.isSummonedBy(owner.getUUID()), "unowned golem claimed nearest player");
+        owner.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
+                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.COMMAND_BLOCK));
+        owner.interactOn(golem, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(golem.isSummonedBy(owner.getUUID()), "command block did not tame golem");
+        helper.assertTrue(owner.getItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND).getCount() == 1,
+                "command block must not be consumed");
+        helper.assertTrue(golem.isAlliedTo(owner), "owner must be allied");
+        var wolf = EntityType.WOLF.create(level);
+        wolf.setOwnerUUID(owner.getUUID());
+        helper.assertTrue(golem.isAlliedTo(wolf), "owner's pets must be allied");
+        CompoundTag saved = new CompoundTag();
+        golem.saveWithoutId(saved);
+        var restored = ModRegistries.MOLTEN_GOLEM.get().create(level);
+        restored.load(saved);
+        helper.assertTrue(restored.isSummonedBy(owner.getUUID()), "tamed owner was not saved");
+        other.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
+                new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.COMMAND_BLOCK));
+        other.interactOn(golem, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(golem.isSummonedBy(owner.getUUID()), "another player stole owned golem");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 40)
+    public static void golemLandingProtectsOwnersPet(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var position = helper.absolutePos(new BlockPos(8, 3, 8));
+        var owner = UUID.randomUUID();
+        var golem = ModRegistries.MOLTEN_GOLEM.get().create(level);
+        golem.moveTo(position.getX(), position.getY(), position.getZ());
+        golem.setSummoner(owner);
+        var wolf = EntityType.WOLF.create(level);
+        wolf.setOwnerUUID(owner);
+        wolf.moveTo(position.getX() + 1, position.getY(), position.getZ());
+        wolf.setNoAi(true);
+        level.addFreshEntity(wolf);
+        var zombie = EntityType.ZOMBIE.create(level);
+        zombie.moveTo(position.getX() + 1, position.getY(), position.getZ() + 1);
+        zombie.setNoAi(true);
+        level.addFreshEntity(zombie);
+        float wolfHealth = wolf.getHealth();
+        float zombieHealth = zombie.getHealth();
+        for (int i = 0; i < 10; i++) golem.tick();
+        helper.assertTrue(wolf.getHealth() == wolfHealth, "landing damaged owner's pet");
+        helper.assertTrue(zombie.getHealth() < zombieHealth, "landing did not damage enemy");
+        wolf.discard();
+        zombie.discard();
+        helper.succeed();
+    }
     @GameTest(template = "empty", timeoutTicks = 20)
     public static void rollRecoveryAllowsAim(GameTestHelper helper) {
         var level = helper.getLevel();

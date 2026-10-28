@@ -144,6 +144,12 @@ tasks.register('verifyBackpackBoneVisibility', JavaExec) {
     mainClass = 'com.mechaniciancombat.client.BackpackBoneVisibilityContract'
 }
 
+tasks.register('verifyBackpackAttachment', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.mechaniciancombat.client.BackpackAttachmentContract'
+}
+
 // Separate, reobfuscated test mod for production-mapped server acceptance runs.
 // Test classes stay out of the distributable mod JAR.
 tasks.register('gameTestModJar', Jar) {
@@ -168,6 +174,7 @@ tasks.named('check') {
     dependsOn tasks.named('verifyPlayerPoseContract')
     dependsOn tasks.named('verifyBackpackAimRotation')
     dependsOn tasks.named('verifyBackpackBoneVisibility')
+    dependsOn tasks.named('verifyBackpackAttachment')
 }
 
 // Reobfuscation retains archive entries. Normalize their timestamps and ordering
